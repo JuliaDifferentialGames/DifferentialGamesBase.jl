@@ -1,6 +1,6 @@
 using Test
 using LinearAlgebra
-using DifferentialGames  # your package module name
+using DifferentialGamesBase  # your package module name
 
 @testset "LQGame construction" begin
     # Define test matrices and vectors
