@@ -3,6 +3,8 @@ module DifferentialGamesBase
 
 # Includes
 include("problems/base.jl")
+include("constraints.jl")
+include("player.jl")
 include("problems/GNEP.jl")
 
 # Exports
