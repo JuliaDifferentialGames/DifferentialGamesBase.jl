@@ -1,0 +1,3 @@
+[deps]
+DifferentialGamesBase = "a9dd1e63-b4ad-4579-bca8-3a609f3d87b9"
+Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"

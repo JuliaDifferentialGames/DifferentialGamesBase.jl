@@ -224,14 +224,6 @@ function NonlinearStageCost(
     NonlinearStageCost(func, gradient, hessian, is_separable)
 end
 
-# # Type aliases for common cases
-# const SeparableCost = NonlinearStageCost{F, G, H} where {F, G, H}
-# const CoupledCost = NonlinearStageCost{F, G, H} where {F, G, H}
-
-# # Helper constructors with semantic names
-# SeparableCost(func::Function; kwargs...) = NonlinearStageCost(func; is_separable=true, kwargs...)
-# CoupledCost(func::Function; kwargs...) = NonlinearStageCost(func; is_separable=false, kwargs...)
-
 # ============================================================================
 # Terminal Costs
 # ============================================================================

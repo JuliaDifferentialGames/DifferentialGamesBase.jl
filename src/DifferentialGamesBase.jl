@@ -13,7 +13,8 @@ include("metadata.jl")
 include("dynamics.jl")
 include("time_horizon.jl")
 include("problems/GNEP.jl") 
-include("helper.jl")
+include("utils.jl")
+include("solutions/gnep_solutions.jl")
         
 
 # Exports - Abstract Types
@@ -128,5 +129,14 @@ export
     is_inequality,
     is_private,
     is_shared
+
+    # Exports - Solution
+export 
+    Trajectory,
+    GameSolution,
+    get_trajectory,
+    get_cost,
+    get_costs,
+    is_nash_equilibrium
 
 end
