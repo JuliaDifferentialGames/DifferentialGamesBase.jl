@@ -5,9 +5,16 @@ using SparseArrays
 using ForwardDiff
 
 # Includes
-include("objectives.jl")           # PlayerObjective, LQStageCost, etc.
-include("constraints.jl")          # PrivateConstraint, SharedConstraint, etc.
-include("problems/GNEP.jl")  # GameProblem, dynamics specs, constructors
+include("problems/base.jl")
+include("objectives.jl")           
+include("constraints.jl")   
+include("player.jl")
+include("metadata.jl")
+include("dynamics.jl")
+include("time_horizon.jl")
+include("problems/GNEP.jl") 
+include("helper.jl")
+        
 
 # Exports - Abstract Types
 export 

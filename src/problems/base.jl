@@ -1,13 +1,20 @@
-"""
-    DifferentialGame 
-
-Most basic abstract game type for a differential game.
-"""
-abstract type DifferentialGame end
+# ============================================================================
+# Abstract Type Hierarchy
+# ============================================================================
 
 """
-    InverseDifferentialGame 
+    AbstractGame{T}
 
-Most basic abstract inverse game type for a differential game.
+Base type for all game-theoretic problems.
+
+# Type Parameters
+- `T` : Numeric type (Float64, Float32, etc.)
+
+# Notes
+All games involve:
+- Multiple decision-makers (players)
+- Strategic interaction (Nash equilibrium concept)
+- Coupled or decoupled objectives
+- Possible constraints on strategy spaces
 """
-abstract type InverseDifferentialGame end
+abstract type AbstractGame{T} end
