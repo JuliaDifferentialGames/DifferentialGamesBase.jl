@@ -1,385 +1,709 @@
-"""
-    AbstractGNEP{T} <: DifferentialGame
-
-Abstract base type for a Generalized Nash Equilibrium Problem.
-
-# Type parameters
-- `T` : numeric type (e.g., `Float64`, `Float32`)
-
-# Notes
-All GNEPs involve:
-- Shared dynamics coupling all players
-- Per-player cost functionals
-- Strategy spaces for each player
-- Possible coupled constraints
-"""
-abstract type AbstractGNEP{T} <: DifferentialGame end
+# ============================================================================
+# Abstract Type Hierarchy
+# ============================================================================
 
 """
-    AbstractPDGNEP{T} <: AbstractGNEP{T}
+    AbstractGame{T}
 
-Abstract base type for a Partially Decoupled Generalized Nash Equilibrium Problem.
-
-# Type parameters
-- `T` : numeric type (e.g., `Float64`, `Float32`)
-
-# Notes
-All PDGNEPs involve:
-- Shared dynamics coupling all players
-- Per-player cost functionals
-- Strategy spaces for each player
-- Possible coupled constraints
-"""
-abstract type AbstractPDGNEP{T} <: AbstractGNEP{T} end
-
-
-"""
-    AbstractPotentialGame{T} <: AbstractGNEP{T}
-
-Abstract base type for potential games (special subclass of GNEP).
-
-# Type parameters
-- `T` : numeric type
-
-# Notes
-Potential games have the special property that all players' gradients
-derive from a single potential function, enabling gradient-based solution methods.
-"""
-abstract type AbstractPotentialGame{T} <: AbstractGNEP{T} end
-
-"""
-    AbstractLexicographicGame{T} <: AbstractPotentialGame{T}
-
-Abstract base type for lexicographic games.
-
-# Type parameters
-- `T` : numeric type
-
-# Notes
-Lexicographic games can be reformulated as potential games (Zargham et al.).
-Players optimize costs in a hierarchical priority ordering rather than
-simultaneously optimizing individual costs.
-"""
-abstract type AbstractLexicographicGame{T} <: AbstractPotentialGame{T} end
-
-"""
-    AbstractLQGame{T} <: AbstractGNEP{T}
-
-Abstract base type for linear-quadratic differential games.
-
-# Type parameters
-- `T` : numeric type
-
-# Notes
-LQ games have:
-- Linear dynamics: ẋ = A(t)x + Σᵢ Bᵢ(t)uᵢ
-- Quadratic costs: Jᵢ = ∫(xᵀQᵢx + uᵢᵀRᵢuᵢ)dt + xᵀ(tf)Qfᵢx(tf)
-- Analytical solution via coupled Riccati equations
-"""
-abstract type AbstractLQGame{T} <: AbstractGNEP{T} end
-
-"""
-    GNEProblem{T, N, M, NP}
-
-Concrete implementation of a general nonlinear finite-horizon GNEP.
-
-# Type parameters
-- `T` : numeric type
-- `N` : state dimension
-- `M` : total control dimension
-- `NP` : number of players
-
-# Fields
-- `dynamics::Function` : dynamics function f(t, x, u) -> ẋ
-- `costs::Vector{Function}` : cost functionals [J₁, J₂, ..., Jₙₚ]
-- `running_costs::Vector{Function}` : running cost functions [L₁(t,x,u₁), ...]
-- `terminal_costs::Vector{Function}` : terminal cost functions [Φ₁(x(tf)), ...]
-- `constraints::Vector{Function}` : constraint functions [g₁(t,x,u), ...]
-- `x0::Vector{T}` : initial state
-- `tf::T` : final time
-- `control_dims::Vector{Int}` : control dimensions per player
-- `constraint_dims::Vector{Int}` : constraint dimensions per player
-
-# Notes
-Represents the general GNEP:
-- Dynamics: ẋ(t) = f(t, x(t), u(t)), x(0) = x0
-- Cost for player i: Jᵢ = ∫₀ᵗᶠ Lᵢ(t,x,uᵢ)dt + Φᵢ(x(tf))
-- Constraints: gᵢ(t, x, u) ≤ 0
-"""
-struct GNEProblem{T, N, M, NP} <: AbstractGNEP{T}
-    dynamics::Function               # f(t, x, u) -> ẋ
-    running_costs::Vector{Function}  # [L₁(t,x,u₁), L₂(t,x,u₂), ...]
-    terminal_costs::Vector{Function} # [Φ₁(x), Φ₂(x), ...]
-    constraints::Vector{Function}    # [g₁(t,x,u), g₂(t,x,u), ...]
-    x0::Vector{T}
-    tf::T
-    control_dims::Vector{Int}
-    constraint_dims::Vector{Int}
-    
-    function GNEProblem{T, N, M, NP}(
-        dynamics::Function,
-        running_costs::Vector{Function},
-        terminal_costs::Vector{Function},
-        constraints::Vector{Function},
-        x0::Vector{T},
-        tf::T,
-        control_dims::Vector{Int},
-        constraint_dims::Vector{Int}
-    ) where {T, N, M, NP}
-        @assert length(running_costs) == NP "Must have NP running cost functions"
-        @assert length(terminal_costs) == NP "Must have NP terminal cost functions"
-        @assert length(x0) == N "x0 must have length N"
-        @assert length(control_dims) == NP "Must specify control_dims for each player"
-        @assert sum(control_dims) == M "Control dimensions must sum to M"
-        @assert tf > 0 "Time horizon must be positive"
-        
-        new{T, N, M, NP}(dynamics, running_costs, terminal_costs, constraints, 
-                         x0, tf, control_dims, constraint_dims)
-    end
-end
-
-# Convenience constructor
-function GNEProblem(
-    dynamics::Function,
-    running_costs::Vector{Function},
-    terminal_costs::Vector{Function},
-    constraints::Vector{Function},
-    x0::Vector{T},
-    tf::T,
-    control_dims::Vector{Int},
-    constraint_dims::Vector{Int} = Int[]
-) where T
-    N = length(x0)
-    M = sum(control_dims)
-    NP = length(running_costs)
-    return GNEProblem{T, N, M, NP}(dynamics, running_costs, terminal_costs, 
-                                    constraints, x0, tf, control_dims, constraint_dims)
-end
-
-
-
-"""
-    PDGNEProblem{T, NP}
-
-Partially-Decoupled Generalized Nash Equilibrium Problem with heterogeneous players.
+Base type for all game-theoretic problems.
 
 # Type Parameters
 - `T` : Numeric type (Float64, Float32, etc.)
-- `NP` : Number of players (encoded at type level for dispatch)
-
-# Fields
-- `players::Vector{Player{T}}` : Vector of N players (length NP)
-- `shared_constraints::Vector{ConstraintSpec}` : Constraints coupling multiple players
-- `tf::T` : Final time
-- `dt::T` : Time step for discretization
-- `state_dims::Vector{Int}` : State dimensions [n¹, n², ..., nᴺ]
-- `control_dims::Vector{Int}` : Control dimensions [m¹, m², ..., mᴺ]
-- `total_n::Int` : Sum of all state dimensions
-- `total_m::Int` : Sum of all control dimensions
-- `state_offsets::Vector{Int}` : Starting indices for each player's state in concatenated vector
-- `control_offsets::Vector{Int}` : Starting indices for each player's control in concatenated vector
-- `time_steps::Int` : Number of time steps (computed from tf and dt)
 
 # Notes
-Represents the PD-GNEP:
-
-For each player i ∈ {1,...,N}, solve:
-    min    Jⁱ(X, uⁱ) = ∫₀ᵗᶠ Lⁱ(X, uⁱ, t)dt + Φⁱ(X(tf))
-    uⁱ(·)
-
-subject to:
-    ẋⁱ(t) = fⁱ(xⁱ(t), uⁱ(t), pⁱ, t)    [separable dynamics]
-    xⁱ(0) = x⁰ⁱ
-    Cⁱₚᵣᵢᵥ(xⁱ, uⁱ) ≤ 0                  [private constraints]
-    Cˢʰᵃʳᵉᵈ(X, U) ≤ 0                   [shared constraints]
-
-where X = [x¹, ..., xᴺ], U = [u¹, ..., uᴺ] are all states and controls.
-
-# Nash Equilibrium Definition
-A strategy profile U* = (u¹*, ..., uᴺ*) is a Nash equilibrium if for all i and all 
-feasible uⁱ:
-
-    Jⁱ(X(U*), uⁱ*) ≤ Jⁱ(X(uⁱ, U⁻ⁱ*), uⁱ)
-
-where X(U) = {xⁱ(·; uⁱ)}ᵢ₌₁ᴺ are the trajectories generated by controls U under 
-separable dynamics, and U⁻ⁱ* = (u¹*, ..., uⁱ⁻¹*, uⁱ⁺¹*, ..., uᴺ*).
-
-# Example
-```julia
-# Define two heterogeneous players
-player1 = Player(
-    id=1, n=4, m=2, 
-    x0=[1.0, 0.0, 0.0, 0.0], 
-    dynamics=(xⁱ, uⁱ, p, t) -> [xⁱ[3], xⁱ[4], uⁱ[1], uⁱ[2]],
-    running_cost=(X, uⁱ, p, t) -> sum(abs2, X[1]) + 0.1*sum(abs2, uⁱ)
-)
-
-player2 = Player(
-    id=2, n=6, m=3, 
-    x0=zeros(6), 
-    dynamics=(xⁱ, uⁱ, p, t) -> [xⁱ[4:6]; uⁱ],
-    running_cost=(X, uⁱ, p, t) -> sum(abs2, X[2]) + 0.1*sum(abs2, uⁱ)
-)
-
-# Collision avoidance constraint (couples players 1 and 2)
-collision = ConstraintSpec(
-    (X, U, p, t) -> [norm(X[1][1:2] - X[2][1:2]) - 0.5],  # maintain 0.5m separation
-    INEQUALITY,
-    1,
-    [1, 2]  # involves players 1 and 2
-)
-
-# Create PD-GNEP
-game = PDGNEProblem([player1, player2], [collision], 10.0, 0.1)
-```
+All games involve:
+- Multiple decision-makers (players)
+- Strategic interaction (Nash equilibrium concept)
+- Coupled or decoupled objectives
+- Possible constraints on strategy spaces
 """
-struct PDGNEProblem{T, NP} <: AbstractGNEP{T}
-    players::Vector{Player{T}}
-    shared_constraints::Vector{ConstraintSpec}
-    tf::T
-    dt::T
-    
-    # Cached dimension information
+abstract type AbstractGame{T} end
+
+# ============================================================================
+# Dynamics Specifications
+# ============================================================================
+
+"""
+    DynamicsSpec{T}
+
+Abstract base type for dynamics specifications.
+
+Encapsulates how system state evolves over time given control inputs.
+"""
+abstract type DynamicsSpec{T} end
+
+"""
+    SeparableDynamics{T, F} <: DynamicsSpec{T}
+
+Separable dynamics where each player's state evolution depends only on their own state and control.
+
+# Mathematical Form
+ẋᵢ(t) = fᵢ(xᵢ(t), uᵢ(t), p, t) for each player i
+
+# Fields
+- `player_dynamics::Vector{F}` : Per-player dynamics functions [f₁, f₂, ..., fₙ]
+- `state_dims::Vector{Int}` : State dimensions [n₁, n₂, ..., nₙ]
+- `control_dims::Vector{Int}` : Control dimensions [m₁, m₂, ..., mₙ]
+
+# Properties
+- Enables parallel state propagation
+- Block-diagonal dynamics Jacobian structure
+- Characteristic of PD-GNEPs (Partially-Decoupled GNEPs)
+
+# Notes
+For stacked state x = [x₁; x₂; ...; xₙ], the full dynamics Jacobian ∂f/∂x
+is block-diagonal, with each block corresponding to ∂fᵢ/∂xᵢ.
+"""
+struct SeparableDynamics{T, F} <: DynamicsSpec{T}
+    player_dynamics::Vector{F}
     state_dims::Vector{Int}
     control_dims::Vector{Int}
-    total_n::Int
-    total_m::Int
-    state_offsets::Vector{Int}      # Cumulative offsets for indexing
-    control_offsets::Vector{Int}
-    time_steps::Int
     
-    function PDGNEProblem{T, NP}(
-        players::Vector{Player{T}},
-        shared_constraints::Vector{ConstraintSpec},
-        tf::T,
-        dt::T
-    ) where {T, NP}
-        @assert length(players) == NP "Number of players must match type parameter NP"
+    function SeparableDynamics(
+        player_dynamics::Vector{F},
+        state_dims::Vector{Int},
+        control_dims::Vector{Int}
+    ) where {F}
+        n_players = length(player_dynamics)
+        @assert length(state_dims) == n_players "Must have state_dims for each player"
+        @assert length(control_dims) == n_players "Must have control_dims for each player"
+        @assert all(state_dims .> 0) "State dimensions must be positive"
+        @assert all(control_dims .> 0) "Control dimensions must be positive"
+        
+        T = Float64  # Default numeric type
+        new{T, F}(player_dynamics, state_dims, control_dims)
+    end
+end
+
+"""
+    LinearDynamics{T} <: DynamicsSpec{T}
+
+Linear dynamics with shared state space and per-player control matrices.
+
+# Mathematical Form
+ẋ(t) = A x(t) + Σᵢ Bᵢ uᵢ(t)
+
+# Fields
+- `A::Matrix{T}` : System dynamics matrix (n × n)
+- `B::Vector{Matrix{T}}` : Control matrices [B₁, B₂, ..., Bₙₚ], each (n × mᵢ)
+- `state_dim::Int` : Shared state dimension n
+- `control_dims::Vector{Int}` : Control dimensions [m₁, m₂, ..., mₙₚ]
+
+# Properties
+- All players operate in same state space
+- Control inputs enter linearly
+- Standard formulation for LQ games (Başar & Olsder, 1998)
+
+# Notes
+This is the coupled dynamics formulation. For separable linear dynamics,
+use SeparableDynamics with linear functions.
+"""
+struct LinearDynamics{T} <: DynamicsSpec{T}
+    A::Matrix{T}
+    B::Vector{Matrix{T}}
+    state_dim::Int
+    control_dims::Vector{Int}
+    
+    function LinearDynamics(A::Matrix{T}, B::Vector{Matrix{T}}) where {T}
+        n = size(A, 1)
+        @assert size(A) == (n, n) "A must be square"
+        
+        n_players = length(B)
+        control_dims = [size(Bi, 2) for Bi in B]
+        
+        for (i, Bi) in enumerate(B)
+            @assert size(Bi, 1) == n "B[$i] must have $n rows to match state dimension"
+        end
+        
+        new{T}(A, B, n, control_dims)
+    end
+end
+
+"""
+    CoupledNonlinearDynamics{T, F} <: DynamicsSpec{T}
+
+General nonlinear coupled dynamics where state evolution can depend on all states and controls.
+
+# Mathematical Form
+ẋ(t) = f(x(t), u(t), p, t)
+
+# Fields
+- `func::F` : Dynamics function f(x, u, p, t) -> ẋ
+- `state_dim::Int` : Total state dimension
+- `control_dim::Int` : Total control dimension
+- `jacobian::Union{Nothing, Function}` : Optional analytical Jacobian (∂f/∂x, ∂f/∂u)
+
+# Notes
+Most general dynamics formulation. Use when:
+- Dynamics cannot be separated by player
+- Nonlinear coupling exists between state components
+- No special structure to exploit
+"""
+struct CoupledNonlinearDynamics{T, F} <: DynamicsSpec{T}
+    func::F
+    state_dim::Int
+    control_dim::Int
+    jacobian::Union{Nothing, Function}
+    
+    function CoupledNonlinearDynamics(
+        func::F,
+        state_dim::Int,
+        control_dim::Int;
+        jacobian::Union{Nothing, Function} = nothing
+    ) where {F}
+        @assert state_dim > 0 "State dimension must be positive"
+        @assert control_dim > 0 "Control dimension must be positive"
+        
+        T = Float64
+        new{T, F}(func, state_dim, control_dim, jacobian)
+    end
+end
+
+# ============================================================================
+# Time Horizon Specifications
+# ============================================================================
+
+"""
+    TimeHorizon{T}
+
+Abstract base type for time horizon specifications.
+"""
+abstract type TimeHorizon{T} end
+
+"""
+    ContinuousTime{T} <: TimeHorizon{T}
+
+Continuous-time horizon for differential games.
+
+# Fields
+- `tf::T` : Final time
+- `integrator_type::Symbol` : ODE integration scheme (:rk4, :tsit5, :euler, etc.)
+
+# Notes
+Solver performs ODE integration to propagate dynamics.
+Choice of integrator affects accuracy and computational cost.
+"""
+struct ContinuousTime{T} <: TimeHorizon{T}
+    tf::T
+    integrator_type::Symbol
+    
+    function ContinuousTime(tf::T; integrator_type::Symbol = :rk4) where {T}
+        @assert tf > 0 "Time horizon must be positive"
+        @assert integrator_type in (:euler, :rk4, :tsit5, :radau) "Unknown integrator type"
+        new{T}(tf, integrator_type)
+    end
+end
+
+"""
+    DiscreteTime{T} <: TimeHorizon{T}
+
+Discrete-time horizon with fixed time step.
+
+# Fields
+- `tf::T` : Final time
+- `dt::T` : Time step
+- `N::Int` : Number of time steps (computed as ceil(tf/dt))
+
+# Notes
+Standard for direct transcription methods.
+State and control discretized at times [0, dt, 2dt, ..., N*dt].
+"""
+struct DiscreteTime{T} <: TimeHorizon{T}
+    tf::T
+    dt::T
+    N::Int
+    
+    function DiscreteTime(tf::T, dt::T) where {T}
         @assert tf > 0 "Time horizon must be positive"
         @assert dt > 0 "Time step must be positive"
         @assert dt < tf "Time step must be less than time horizon"
-        @assert allunique(player_id(p) for p in players) "Player IDs must be unique"
         
-        # Validate shared constraints reference valid player IDs
-        all_ids = Set(player_id(p) for p in players)
-        for c in shared_constraints
-            @assert all(id ∈ all_ids for id in c.involved_players) "Shared constraint references invalid player ID"
-            @assert length(c.involved_players) >= 2 "Shared constraints must involve at least 2 players"
-        end
-        
-        # Compute dimension information
-        state_dims = [p.n for p in players]
-        control_dims = [p.m for p in players]
-        total_n = sum(state_dims)
-        total_m = sum(control_dims)
-        
-        # Compute offsets for concatenated vectors (0-indexed for convenience)
-        state_offsets = [0; cumsum(state_dims)[1:end-1]]
-        control_offsets = [0; cumsum(control_dims)[1:end-1]]
-        
-        # Compute number of time steps
-        time_steps = Int(ceil(tf / dt))
-        
-        new{T, NP}(players, shared_constraints, tf, dt,
-                   state_dims, control_dims, total_n, total_m,
-                   state_offsets, control_offsets, time_steps)
+        N = Int(ceil(tf / dt))
+        new{T}(tf, dt, N)
     end
 end
 
-# Convenience constructor (infers NP from player count)
-function PDGNEProblem(
-    players::Vector{Player{T}},
-    shared_constraints::Vector{ConstraintSpec},
-    tf::T,
-    dt::T
-) where T
-    NP = length(players)
-    return PDGNEProblem{T, NP}(players, shared_constraints, tf, dt)
-end
-
-# Constructor with default empty shared constraints
-function PDGNEProblem(
-    players::Vector{Player{T}},
-    tf::T,
-    dt::T
-) where T
-    return PDGNEProblem(players, ConstraintSpec[], tf, dt)
-end
-
-
-
+# ============================================================================
+# Game Metadata
+# ============================================================================
 
 """
-    LQGameProblem{T, N, M, NP}
+    CouplingGraph
 
-Concrete implementation of a finite-horizon linear-quadratic differential game.
-
-# Type parameters
-- `T` : numeric type (Float64, Float32, etc.)
-- `N` : state dimension
-- `M` : total control dimension (sum across all players)
-- `NP` : number of players
+Encodes coupling structure between players for solver exploitation.
 
 # Fields
-- `A::Matrix{T}` : n×n system dynamics matrix
-- `B::Vector{Matrix{T}}` : control matrices [B₁, B₂, ..., Bₙₚ], each n×mᵢ
-- `Q::Vector{Matrix{T}}` : state cost matrices [Q₁, Q₂, ..., Qₙₚ], each n×n
-- `R::Vector{Matrix{T}}` : control cost matrices [R₁, R₂, ..., Rₙₚ], each mᵢ×mᵢ
-- `Qf::Vector{Matrix{T}}` : terminal cost matrices [Qf₁, Qf₂, ..., Qfₙₚ], each n×n
-- `x0::Vector{T}` : n-dimensional initial state
-- `tf::T` : final time (time horizon)
-- `control_dims::Vector{Int}` : control dimensions [m₁, m₂, ..., mₙₚ] for each player
+- `cost_coupling::SparseMatrixCSC{Bool}` : cost_coupling[i,j] = true if Jᵢ depends on uⱼ
+- `constraint_coupling::Vector{Vector{Int}}` : Players involved in each shared constraint
+- `dynamics_coupling::Union{Nothing, SparseMatrixCSC{Bool}}` : For coupled dynamics
 
 # Notes
-Represents the finite-horizon LQ game:
-- Dynamics: ẋ(t) = Ax(t) + Σᵢ Bᵢuᵢ(t), x(0) = x0
-- Cost for player i: Jᵢ = ∫₀ᵗᶠ [xᵀQᵢx + uᵢᵀRᵢuᵢ]dt + x(tf)ᵀQfᵢx(tf)
+Sparse coupling enables:
+- Parallel computation of independent subproblems
+- Reduced communication in distributed algorithms
+- Improved convergence rates for iterative methods
 """
-struct LQGameProblem{T, N, M, NP} <: AbstractLQGame{T}
-    A::Matrix{T}                  # n×n
-    B::Vector{Matrix{T}}          # length NP, each n×mᵢ
-    Q::Vector{Matrix{T}}          # length NP, each n×n
-    R::Vector{Matrix{T}}          # length NP, each mᵢ×mᵢ
-    Qf::Vector{Matrix{T}}         # length NP, each n×n
-    x0::Vector{T}                 # length n
-    tf::T                         # scalar
-    control_dims::Vector{Int}     # length NP
+struct CouplingGraph
+    cost_coupling::SparseMatrixCSC{Bool}
+    constraint_coupling::Vector{Vector{Int}}
+    dynamics_coupling::Union{Nothing, SparseMatrixCSC{Bool}}
+end
 
-    function LQGameProblem{T, N, M, NP}(
-        A::Matrix{T},
-        B::Vector{Matrix{T}},
-        Q::Vector{Matrix{T}},
-        R::Vector{Matrix{T}},
-        Qf::Vector{Matrix{T}},
-        x0::Vector{T},
-        tf::T,
-        control_dims::Vector{Int}
-    ) where {T, N, M, NP}
-        # Validation
-        @assert size(A) == (N, N) "A must be n×n"
-        @assert length(B) == NP "Must have NP control matrices"
-        @assert length(Q) == NP "Must have NP state cost matrices"
-        @assert length(R) == NP "Must have NP control cost matrices"
-        @assert length(Qf) == NP "Must have NP terminal cost matrices"
-        @assert length(x0) == N "x0 must have length n"
-        @assert length(control_dims) == NP "Must specify control_dims for each player"
-        @assert sum(control_dims) == M "Control dimensions must sum to M"
-        @assert tf > 0 "Time horizon must be positive"
+"""
+    GameMetadata
+
+Cached information about game structure for solver efficiency.
+
+# Fields
+- `state_dims::Vector{Int}` : State dimensions per player
+- `control_dims::Vector{Int}` : Control dimensions per player
+- `state_offsets::Vector{Int}` : Starting indices in stacked state vector
+- `control_offsets::Vector{Int}` : Starting indices in stacked control vector
+- `coupling_graph::CouplingGraph` : Coupling structure between players
+- `is_potential::Bool` : Whether game has potential function structure
+- `potential_function::Union{Nothing, Function}` : Potential function if exists
+
+# Notes
+Computed once at problem construction, reused by solvers.
+"""
+struct GameMetadata
+    state_dims::Vector{Int}
+    control_dims::Vector{Int}
+    state_offsets::Vector{Int}
+    control_offsets::Vector{Int}
+    coupling_graph::CouplingGraph
+    is_potential::Bool
+    potential_function::Union{Nothing, Function}
+end
+
+# ============================================================================
+# Universal Game Problem Container
+# ============================================================================
+
+"""
+    GameProblem{T}
+
+Universal game problem representation supporting arbitrary structure.
+
+# Type Parameters
+- `T` : Numeric type
+
+# Fields
+- `n_players::Int` : Number of players
+- `objectives::Vector{PlayerObjective}` : Per-player objective functions
+- `dynamics::DynamicsSpec{T}` : System dynamics specification
+- `initial_state::Vector{T}` : Initial state x(0)
+- `private_constraints::Vector{PrivateConstraint}` : Player-specific constraints
+- `shared_constraints::Vector{SharedConstraint}` : Constraints coupling multiple players
+- `time_horizon::TimeHorizon{T}` : Time specification
+- `metadata::GameMetadata` : Cached structural information
+
+# Mathematical Formulation
+For each player i ∈ {1, ..., N}, the game seeks a Nash equilibrium where:
+
+    min   Jᵢ(x(·), uᵢ(·))
+    uᵢ(·)
+
+subject to:
+    ẋ(t) = f(x(t), u(t), p, t),  x(0) = x₀
+    gᵢ(xᵢ, uᵢ, p, t) ≤ 0          [private constraints]
+    h(x, u, p, t) ≤ 0              [shared constraints]
+
+A strategy profile u* = (u₁*, ..., uₙ*) is a Nash equilibrium if for all i:
+    Jᵢ(x(u*), uᵢ*) ≤ Jᵢ(x(uᵢ, u₋ᵢ*), uᵢ)  ∀ feasible uᵢ
+
+# Property Queries
+Use query functions to determine game structure:
+- `has_separable_dynamics(game)` : Check if dynamics are decoupled
+- `is_lq_game(game)` : Check if costs are quadratic and dynamics linear
+- `is_potential_game(game)` : Check if potential function exists
+- `has_shared_constraints(game)` : Check for constraint coupling
+
+# Example
+```julia
+# Build game from components
+game = GameProblem{Float64}(
+    n_players,
+    objectives,
+    dynamics,
+    x0,
+    private_constraints,
+    shared_constraints,
+    time_horizon,
+    metadata
+)
+
+# Solve with automatic method selection
+solution = solve(game)
+```
+"""
+struct GameProblem{T}
+    n_players::Int
+    objectives::Vector{PlayerObjective}
+    dynamics::DynamicsSpec{T}
+    initial_state::Vector{T}
+    private_constraints::Vector{<:PrivateConstraint}
+    shared_constraints::Vector{<:SharedConstraint}
+    time_horizon::TimeHorizon{T}
+    metadata::GameMetadata
+    
+    function GameProblem{T}(
+        n_players::Int,
+        objectives::Vector{PlayerObjective},
+        dynamics::DynamicsSpec{T},
+        initial_state::Vector{T},
+        private_constraints::Vector{<:PrivateConstraint},
+        shared_constraints::Vector{<:SharedConstraint},
+        time_horizon::TimeHorizon{T},
+        metadata::GameMetadata
+    ) where {T}
+        @assert n_players > 0 "Must have at least one player"
+        @assert length(objectives) == n_players "Must have objective for each player"
+        @assert all(obj.player_id > 0 && obj.player_id <= n_players for obj in objectives) "Invalid player IDs in objectives"
+        @assert allunique(obj.player_id for obj in objectives) "Duplicate player IDs in objectives"
         
-        # Validate dimensions
-        for i in 1:NP
-            @assert size(B[i], 1) == N "B[$i] must have $N rows"
-            @assert size(B[i], 2) == control_dims[i] "B[$i] must have $(control_dims[i]) columns"
-            @assert size(Q[i]) == (N, N) "Q[$i] must be n×n"
-            @assert size(R[i]) == (control_dims[i], control_dims[i]) "R[$i] must be mᵢ×mᵢ"
-            @assert size(Qf[i]) == (N, N) "Qf[$i] must be n×n"
+        # Validate constraint player references
+        all_player_ids = Set(1:n_players)
+        for c in private_constraints
+            @assert c.player in all_player_ids "Private constraint references invalid player"
+        end
+        for c in shared_constraints
+            @assert all(p in all_player_ids for p in c.players) "Shared constraint references invalid player"
         end
         
-        new{T, N, M, NP}(A, B, Q, R, Qf, x0, tf, control_dims)
+        new{T}(n_players, objectives, dynamics, initial_state,
+               private_constraints, shared_constraints, time_horizon, metadata)
     end
 end
 
-# Convenience constructor
+# ============================================================================
+# Property Query Functions
+# ============================================================================
+
+"""
+    has_separable_dynamics(game::GameProblem)
+
+Check if game has separable (decoupled) dynamics structure.
+
+Returns true for PD-GNEPs where ẋᵢ = fᵢ(xᵢ, uᵢ).
+"""
+has_separable_dynamics(game::GameProblem) = game.dynamics isa SeparableDynamics
+
+"""
+    is_lq_game(game::GameProblem)
+
+Check if all objectives are linear-quadratic and dynamics are linear.
+
+Returns true if this is a classical LQ game solvable via Riccati equations.
+"""
+function is_lq_game(game::GameProblem)
+    # Check dynamics are linear
+    if !(game.dynamics isa LinearDynamics)
+        return false
+    end
+    
+    # Check all objectives have LQ stage and terminal costs
+    for obj in game.objectives
+        if !(obj.stage_cost isa Union{LQStageCost, DiagonalLQStageCost})
+            return false
+        end
+        if !(obj.terminal_cost isa Union{LQTerminalCost, DiagonalLQTerminalCost})
+            return false
+        end
+    end
+    
+    return true
+end
+
+"""
+    is_potential_game(game::GameProblem)
+
+Check if game has potential function structure.
+
+Returns true if stored in metadata (must be computed/verified at construction).
+"""
+is_potential_game(game::GameProblem) = game.metadata.is_potential
+
+"""
+    has_shared_constraints(game::GameProblem)
+
+Check if game has constraints coupling multiple players.
+"""
+has_shared_constraints(game::GameProblem) = !isempty(game.shared_constraints)
+
+"""
+    is_unconstrained(game::GameProblem)
+
+Check if game has no constraints of any kind.
+"""
+is_unconstrained(game::GameProblem) = 
+    isempty(game.private_constraints) && isempty(game.shared_constraints)
+
+"""
+    is_pd_gnep(game::GameProblem)
+
+Check if game is a Partially-Decoupled GNEP (separable dynamics).
+"""
+is_pd_gnep(game::GameProblem) = has_separable_dynamics(game)
+
+"""
+    is_lq_pd_gnep(game::GameProblem)
+
+Check if game is an LQ game with separable dynamics.
+"""
+is_lq_pd_gnep(game::GameProblem) = is_lq_game(game) && is_pd_gnep(game)
+
+# ============================================================================
+# Helper Functions
+# ============================================================================
+
+"""
+    num_players(game::GameProblem)
+
+Get number of players in game.
+"""
+num_players(game::GameProblem) = game.n_players
+
+"""
+    state_dim(game::GameProblem)
+
+Get total state dimension (sum across all players).
+"""
+state_dim(game::GameProblem) = sum(game.metadata.state_dims)
+
+"""
+    control_dim(game::GameProblem)
+
+Get total control dimension (sum across all players).
+"""
+control_dim(game::GameProblem) = sum(game.metadata.control_dims)
+
+"""
+    state_dim(game::GameProblem)
+
+Get total state dimension (sum across all players for separable, or single dimension for shared).
+"""
+function state_dim(game::GameProblem)
+    if has_separable_dynamics(game)
+        return sum(game.metadata.state_dims)
+    else
+        # Shared state space
+        return game.metadata.state_dims[1]
+    end
+end
+
+"""
+    control_dim(game::GameProblem, player::Int)
+
+Get control dimension for specific player.
+"""
+control_dim(game::GameProblem, player::Int) = game.metadata.control_dims[player]
+
+"""
+    get_objective(game::GameProblem, player::Int)
+
+Get objective function for specific player.
+"""
+function get_objective(game::GameProblem, player::Int)
+    idx = findfirst(obj -> obj.player_id == player, game.objectives)
+    isnothing(idx) && error("No objective found for player $player")
+    return game.objectives[idx]
+end
+
+# ============================================================================
+# Specialized Constructors
+# ============================================================================
+
+"""
+    PlayerSpec{T}
+
+Specification for a single player in a PD-GNEP.
+
+# Fields
+- `id::Int` : Player identifier
+- `n::Int` : State dimension
+- `m::Int` : Control dimension
+- `x0::Vector{T}` : Initial state
+- `dynamics::Function` : Dynamics function fᵢ(xᵢ, uᵢ, p, t)
+- `objective::PlayerObjective` : Cost functional
+- `constraints::Vector{PrivateConstraint}` : Player-specific constraints
+
+# Notes
+Used to build PD-GNEPs where each player has separable dynamics.
+"""
+struct PlayerSpec{T}
+    id::Int
+    n::Int
+    m::Int
+    x0::Vector{T}
+    dynamics::Function
+    objective::PlayerObjective
+    constraints::Vector{<:PrivateConstraint}
+    
+    # Inner constructor - make constraints optional with default
+    function PlayerSpec{T}(
+        id::Int,
+        n::Int,
+        m::Int,
+        x0::Vector{T},
+        dynamics::Function,
+        objective::PlayerObjective,
+        constraints::Vector{<:PrivateConstraint} = PrivateConstraint[]  # Optional positional
+    ) where {T}
+        @assert id > 0 "Player ID must be positive"
+        @assert n > 0 "State dimension must be positive"
+        @assert m > 0 "Control dimension must be positive"
+        @assert length(x0) == n "Initial state must match state dimension"
+        @assert objective.player_id == id "Objective player_id must match PlayerSpec id"
+        
+        new{T}(id, n, m, x0, dynamics, objective, constraints)
+    end
+end
+
+# Convenience constructor 
+PlayerSpec(
+    id::Int,
+    n::Int,
+    m::Int,
+    x0::Vector{T},
+    dynamics::Function,
+    objective::PlayerObjective,
+    constraints::Vector{<:PrivateConstraint} = PrivateConstraint[]
+) where {T} = PlayerSpec{T}(id, n, m, x0, dynamics, objective, constraints)
+
+"""
+    PDGNEProblem(players, shared_constraints, tf, dt)
+
+Construct a Partially-Decoupled GNEP from player specifications.
+
+# Arguments
+- `players::Vector{PlayerSpec{T}}` : Player specifications with separable dynamics
+- `shared_constraints::Vector{SharedConstraint}` : Constraints coupling multiple players
+- `tf::T` : Final time
+- `dt::T` : Time step for discretization
+
+# Returns
+`GameProblem{T}` with separable dynamics structure.
+
+# Example
+```julia
+player1 = PlayerSpec(1, 6, 3, x0_1, dynamics_1, objective_1)
+player2 = PlayerSpec(2, 6, 3, x0_2, dynamics_2, objective_2)
+
+collision = SharedConstraint(collision_constraint, [1, 2])
+
+game = PDGNEProblem([player1, player2], [collision], 10.0, 0.1)
+```
+"""
+function PDGNEProblem(
+    players::Vector{PlayerSpec{T}},
+    shared_constraints::Vector{<:SharedConstraint},
+    tf::T,
+    dt::T
+) where {T}
+    n_players = length(players)
+    @assert n_players > 0 "Must have at least one player"
+    @assert allunique(p.id for p in players) "Player IDs must be unique"
+    
+    # Extract components
+    objectives = [p.objective for p in players]
+    state_dims = [p.n for p in players]
+    control_dims = [p.m for p in players]
+    
+    # Build separable dynamics
+    player_dynamics = [p.dynamics for p in players]
+    dynamics = SeparableDynamics(player_dynamics, state_dims, control_dims)
+    
+    # Stack initial states
+    initial_state = vcat([p.x0 for p in players]...)
+    
+    # Collect private constraints
+    private_constraints = vcat([p.constraints for p in players]...)
+    
+    # Time horizon
+    time_horizon = DiscreteTime(tf, dt)
+    
+    # Build metadata
+    state_offsets = [0; cumsum(state_dims)[1:end-1]]
+    control_offsets = [0; cumsum(control_dims)[1:end-1]]
+    
+    # Build coupling graph (simplified - could be more sophisticated)
+    cost_coupling = spzeros(Bool, n_players, n_players)
+    for (i, obj) in enumerate(objectives)
+        if is_separable(obj.stage_cost)
+            cost_coupling[i, i] = true
+        else
+            # Conservative: assume full coupling
+            cost_coupling[i, :] .= true
+        end
+    end
+    
+    constraint_coupling = [c.players for c in shared_constraints]
+    coupling_graph = CouplingGraph(cost_coupling, constraint_coupling, nothing)
+    
+    metadata = GameMetadata(
+        state_dims,
+        control_dims,
+        state_offsets,
+        control_offsets,
+        coupling_graph,
+        false,  # is_potential
+        nothing  # potential_function
+    )
+    
+    return GameProblem{T}(
+        n_players,
+        objectives,
+        dynamics,
+        initial_state,
+        private_constraints,
+        shared_constraints,
+        time_horizon,
+        metadata
+    )
+end
+
+# Convenience constructor without shared constraints
+PDGNEProblem(players::Vector{PlayerSpec{T}}, tf::T, dt::T) where {T} =
+    PDGNEProblem(players, SharedConstraint[], tf, dt)
+
+"""
+    LQGameProblem(A, B, Q, R, Qf, x0, tf; dt=0.01, M=nothing, q=nothing, r=nothing)
+
+Construct a linear-quadratic differential game from matrix data.
+
+# Arguments
+- `A::Matrix{T}` : System dynamics matrix (n × n)
+- `B::Vector{Matrix{T}}` : Control matrices [B₁, ..., Bₙₚ]
+- `Q::Vector{Matrix{T}}` : State cost matrices [Q₁, ..., Qₙₚ]
+- `R::Vector{Matrix{T}}` : Control cost matrices [R₁, ..., Rₙₚ]
+- `Qf::Vector{Matrix{T}}` : Terminal cost matrices [Qf₁, ..., Qfₙₚ]
+- `x0::Vector{T}` : Initial state
+- `tf::T` : Final time
+- `dt::T` : Time step (default: 0.01)
+- `M::Union{Vector{Matrix{T}}, Nothing}` : Cross-term matrices (optional)
+- `q::Union{Vector{Vector{T}}, Nothing}` : Linear state costs (optional)
+- `r::Union{Vector{Vector{T}}, Nothing}` : Linear control costs (optional)
+
+# Returns
+`GameProblem{T}` representing classical LQ game.
+
+# Mathematical Form
+Dynamics: ẋ = Ax + Σᵢ Bᵢuᵢ
+Cost: Jᵢ = ∫[xᵀQᵢx + uᵢᵀRᵢuᵢ + 2xᵀMᵢuᵢ + qᵢᵀx + rᵢᵀuᵢ]dt + x(tf)ᵀQfᵢx(tf)
+
+# Example
+```julia
+n, n_players = 4, 2
+A = randn(n, n)
+B = [randn(n, 2) for _ in 1:n_players]
+Q = [diagm(ones(n)) for _ in 1:n_players]
+R = [diagm(0.1 * ones(2)) for _ in 1:n_players]
+Qf = [diagm(10.0 * ones(n)) for _ in 1:n_players]
+
+game = LQGameProblem(A, B, Q, R, Qf, zeros(n), 10.0)
+```
+"""
 function LQGameProblem(
     A::Matrix{T},
     B::Vector{Matrix{T}},
@@ -387,206 +711,153 @@ function LQGameProblem(
     R::Vector{Matrix{T}},
     Qf::Vector{Matrix{T}},
     x0::Vector{T},
-    tf::T,
-    control_dims::Vector{Int}
-) where T
-    N = size(A, 1)
-    M = sum(control_dims)
-    NP = length(B)
-    return LQGameProblem{T, N, M, NP}(A, B, Q, R, Qf, x0, tf, control_dims)
-end
-
-"""
-    PotentialGameProblem{T, N, M, NP}
-
-Concrete implementation of a finite-horizon potential game.
-
-# Type parameters
-- `T` : numeric type
-- `N` : state dimension
-- `M` : total control dimension
-- `NP` : number of players
-
-# Fields
-- `dynamics::Function` : dynamics function f(t, x, u) -> ẋ
-- `potential::Function` : potential function P(t, x, u)
-- `running_potential::Function` : running potential L(t, x, u)
-- `terminal_potential::Function` : terminal potential Φ(x(tf))
-- `constraints::Vector{Function}` : constraint functions
-- `x0::Vector{T}` : initial state
-- `tf::T` : final time
-- `control_dims::Vector{Int}` : control dimensions per player
-
-# Notes
-Represents a potential game where:
-- All player gradients derive from a single potential function
-- ∇ᵤᵢJᵢ = ∇ᵤᵢP for all players i
-- Total cost: P = ∫₀ᵗᶠ L(t,x,u)dt + Φ(x(tf))
-"""
-struct PotentialGameProblem{T, N, M, NP} <: AbstractPotentialGame{T}
-    dynamics::Function
-    running_potential::Function    # L(t, x, u)
-    terminal_potential::Function   # Φ(x)
-    constraints::Vector{Function}
-    x0::Vector{T}
-    tf::T
-    control_dims::Vector{Int}
+    tf::T;
+    dt::T = T(0.01),
+    M::Union{Vector{Matrix{T}}, Nothing} = nothing,
+    q::Union{Vector{Vector{T}}, Nothing} = nothing,
+    r::Union{Vector{Vector{T}}, Nothing} = nothing
+) where {T}
+    n = size(A, 1)
+    n_players = length(B)
     
-    function PotentialGameProblem{T, N, M, NP}(
-        dynamics::Function,
-        running_potential::Function,
-        terminal_potential::Function,
-        constraints::Vector{Function},
-        x0::Vector{T},
-        tf::T,
-        control_dims::Vector{Int}
-    ) where {T, N, M, NP}
-        @assert length(x0) == N "x0 must have length N"
-        @assert length(control_dims) == NP "Must specify control_dims for each player"
-        @assert sum(control_dims) == M "Control dimensions must sum to M"
-        @assert tf > 0 "Time horizon must be positive"
+    @assert length(Q) == n_players "Must have Q for each player"
+    @assert length(R) == n_players "Must have R for each player"
+    @assert length(Qf) == n_players "Must have Qf for each player"
+    @assert length(x0) == n "Initial state must match state dimension"
+    
+    # Validate LQ structure
+    @assert size(A) == (n, n) "A must be n × n"
+    for i in 1:n_players
+        @assert size(Q[i]) == (n, n) "Q[$i] must be n × n"
+        @assert issymmetric(Q[i]) "Q[$i] must be symmetric"
+        @assert size(R[i], 1) == size(R[i], 2) "R[$i] must be square"
+        @assert issymmetric(R[i]) "R[$i] must be symmetric"
+        @assert isposdef(R[i]) "R[$i] must be positive definite"
+        @assert size(Qf[i]) == (n, n) "Qf[$i] must be n × n"
+        @assert issymmetric(Qf[i]) "Qf[$i] must be symmetric"
+    end
+    
+    # Build dynamics
+    control_dims = [size(Bi, 2) for Bi in B]
+    dynamics = LinearDynamics(A, B)
+    
+    # Build objectives
+    objectives = PlayerObjective[]
+    for i in 1:n_players
+        mi = control_dims[i]
         
-        new{T, N, M, NP}(dynamics, running_potential, terminal_potential, 
-                         constraints, x0, tf, control_dims)
-    end
-end
-
-# Convenience constructor
-function PotentialGameProblem(
-    dynamics::Function,
-    running_potential::Function,
-    terminal_potential::Function,
-    constraints::Vector{Function},
-    x0::Vector{T},
-    tf::T,
-    control_dims::Vector{Int}
-) where T
-    N = length(x0)
-    M = sum(control_dims)
-    NP = length(control_dims)
-    return PotentialGameProblem{T, N, M, NP}(dynamics, running_potential, 
-                                             terminal_potential, constraints, 
-                                             x0, tf, control_dims)
-end
-
-"""
-    LexicographicGameProblem{T, N, M, NP}
-
-Concrete implementation of a finite-horizon lexicographic game.
-
-# Type parameters
-- `T` : numeric type
-- `N` : state dimension
-- `M` : total control dimension
-- `NP` : number of players (priority levels)
-
-# Fields
-- `dynamics::Function` : dynamics function f(t, x, u) -> ẋ
-- `running_costs::Vector{Function}` : ordered running costs [L₁(t,x,u₁), ...] by priority
-- `terminal_costs::Vector{Function}` : ordered terminal costs [Φ₁(x), ...] by priority
-- `priorities::Vector{Int}` : priority ordering (1 = highest priority)
-- `constraints::Vector{Function}` : constraint functions
-- `x0::Vector{T}` : initial state
-- `tf::T` : final time
-- `control_dims::Vector{Int}` : control dimensions per player
-- `potential::Function` : equivalent potential function (computed from priorities)
-
-# Notes
-Lexicographic games optimize costs in hierarchical priority order:
-- Player 1 optimizes J₁ first (highest priority)
-- Player 2 optimizes J₂ subject to not degrading J₁
-- And so on...
-Recent work (Zargham et al.) shows these can be reformulated as potential games.
-"""
-struct LexicographicGameProblem{T, N, M, NP} <: AbstractLexicographicGame{T}
-    dynamics::Function
-    running_costs::Vector{Function}
-    terminal_costs::Vector{Function}
-    priorities::Vector{Int}
-    constraints::Vector{Function}
-    x0::Vector{T}
-    tf::T
-    control_dims::Vector{Int}
-    potential::Function  # Derived from lexicographic structure
-    
-    function LexicographicGameProblem{T, N, M, NP}(
-        dynamics::Function,
-        running_costs::Vector{Function},
-        terminal_costs::Vector{Function},
-        priorities::Vector{Int},
-        constraints::Vector{Function},
-        x0::Vector{T},
-        tf::T,
-        control_dims::Vector{Int},
-        potential::Function
-    ) where {T, N, M, NP}
-        @assert length(running_costs) == NP "Must have NP running cost functions"
-        @assert length(terminal_costs) == NP "Must have NP terminal cost functions"
-        @assert length(priorities) == NP "Must have NP priorities"
-        @assert length(x0) == N "x0 must have length N"
-        @assert length(control_dims) == NP "Must specify control_dims for each player"
-        @assert sum(control_dims) == M "Control dimensions must sum to M"
-        @assert tf > 0 "Time horizon must be positive"
-        @assert all(1 .<= priorities .<= NP) "Priorities must be between 1 and NP"
-        @assert length(unique(priorities)) == NP "Priorities must be unique"
+        # Extract optional components
+        Mi = isnothing(M) ? zeros(T, n, mi) : M[i]
+        qi = isnothing(q) ? zeros(T, n) : q[i]
+        ri = isnothing(r) ? zeros(T, mi) : r[i]
         
-        new{T, N, M, NP}(dynamics, running_costs, terminal_costs, priorities, 
-                         constraints, x0, tf, control_dims, potential)
+        stage_cost = LQStageCost(Q[i], R[i], Mi, qi, ri, zero(T))
+        terminal_cost = LQTerminalCost(Qf[i])
+        
+        push!(objectives, PlayerObjective(i, stage_cost, terminal_cost))
     end
+    
+    # Time horizon
+    time_horizon = DiscreteTime(tf, dt)
+    
+    # Build metadata
+    state_dims = [n]  # Correct: single shared state space
+    state_offsets = [0]  # Only one offset needed
+    control_offsets = [0; cumsum(control_dims)[1:end-1]]
+    
+    # Coupling graph (LQ games typically have full cost coupling via shared state)
+    cost_coupling = sparse(trues(n_players, n_players))  # Dense
+    coupling_graph = CouplingGraph(cost_coupling, Vector{Int}[], nothing)
+    
+    metadata = GameMetadata(
+        state_dims,
+        control_dims,
+        state_offsets,
+        control_offsets,
+        coupling_graph,
+        false,
+        nothing
+    )
+    
+    return GameProblem{T}(
+        n_players,
+        objectives,
+        dynamics,
+        x0,
+        PrivateConstraint[],
+        SharedConstraint[],
+        time_horizon,
+        metadata
+    )
 end
 
-# Convenience constructor with automatic potential function generation
-function LexicographicGameProblem(
-    dynamics::Function,
-    running_costs::Vector{Function},
-    terminal_costs::Vector{Function},
-    priorities::Vector{Int},
-    constraints::Vector{Function},
+"""
+    UnconstrainedLQGame(A, B, Q, R, Qf, x0, tf; dt=0.01)
+
+Convenience constructor for unconstrained LQ games.
+
+Equivalent to `LQGameProblem` but emphasizes unconstrained nature.
+Useful for classical LQ game benchmarks and theoretical analysis.
+
+# Example
+```julia
+# Two-player pursuit-evasion
+n = 4  # [x, y, vx, vy]
+A = [0 0 1 0; 0 0 0 1; 0 0 0 0; 0 0 0 0]
+B = [zeros(2,2); I(2)], [zeros(2,2); -I(2)]  # Opposing controls
+
+Q1 = diagm([1.0, 1.0, 0.0, 0.0])  # Pursuer wants small position error
+Q2 = diagm([1.0, 1.0, 0.0, 0.0])  # Evader wants large position error (minimizes -Q2)
+
+R1 = 0.1 * I(2)
+R2 = 0.1 * I(2)
+
+game = UnconstrainedLQGame(A, [B...], [Q1, Q2], [R1, R2], [Q1, Q2], zeros(4), 5.0)
+```
+"""
+UnconstrainedLQGame(
+    A::Matrix{T},
+    B::Vector{Matrix{T}},
+    Q::Vector{Matrix{T}},
+    R::Vector{Matrix{T}},
+    Qf::Vector{Matrix{T}},
     x0::Vector{T},
-    tf::T,
-    control_dims::Vector{Int};
-    potential::Union{Function, Nothing} = nothing
-) where T
-    N = length(x0)
-    M = sum(control_dims)
-    NP = length(running_costs)
+    tf::T;
+    dt::T = T(0.01)
+) where {T} = LQGameProblem(A, B, Q, R, Qf, x0, tf; dt=dt)
+
+# ============================================================================
+# Display Methods
+# ============================================================================
+
+function Base.show(io::IO, game::GameProblem{T}) where {T}
+    print(io, "GameProblem{$T} with $(game.n_players) players")
     
-    # Generate potential function if not provided
-    # Using exponential weighting: P = Σᵢ exp(α(NP - priority[i])) * Jᵢ
-    if isnothing(potential)
-        α = 10.0  # Separation parameter (larger = stricter priority)
-        potential = (t, x, u) -> begin
-            val = zero(T)
-            for i in 1:NP
-                weight = exp(α * (NP - priorities[i]))
-                val += weight * running_costs[i](t, x, u[control_dims[1:i-1] .+ 1:sum(control_dims[1:i])])
-            end
-            return val
-        end
+    # Add structure tags
+    tags = String[]
+    is_lq_game(game) && push!(tags, "LQ")
+    is_pd_gnep(game) && push!(tags, "PD-GNEP")
+    is_potential_game(game) && push!(tags, "Potential")
+    is_unconstrained(game) && push!(tags, "Unconstrained")
+    
+    if !isempty(tags)
+        print(io, " [", join(tags, ", "), "]")
     end
-    
-    return LexicographicGameProblem{T, N, M, NP}(dynamics, running_costs, 
-                                                  terminal_costs, priorities, 
-                                                  constraints, x0, tf, 
-                                                  control_dims, potential)
 end
 
-# Helper functions
-num_players(::Union{GNEProblem{T,N,M,NP}, LQGameProblem{T,N,M,NP}, 
-                    PotentialGameProblem{T,N,M,NP}, LexicographicGameProblem{T,N,M,NP}}) where {T,N,M,NP} = NP
-state_dim(::Union{GNEProblem{T,N,M,NP}, LQGameProblem{T,N,M,NP}, 
-                  PotentialGameProblem{T,N,M,NP}, LexicographicGameProblem{T,N,M,NP}}) where {T,N,M,NP} = N
-control_dim(::Union{GNEProblem{T,N,M,NP}, LQGameProblem{T,N,M,NP}, 
-                    PotentialGameProblem{T,N,M,NP}, LexicographicGameProblem{T,N,M,NP}}) where {T,N,M,NP} = M
-control_dim(game::Union{GNEProblem, LQGameProblem, PotentialGameProblem, LexicographicGameProblem}, player::Int) = game.control_dims[player]
-
-"""
-    get_player(game::PDGNEProblem, id::Int)
-
-Get player by ID.
-"""
-function get_player(game::PDGNEProblem, id::Int)
-    idx = findfirst(p -> p.id == id, game.players)
-    isnothing(idx) && error("Player with id=$id not found")
-    return game.players[idx]
+function Base.show(io::IO, ::MIME"text/plain", game::GameProblem{T}) where {T}
+    println(io, "GameProblem{$T}")
+    println(io, "  Players: ", game.n_players)
+    println(io, "  State dimension: ", state_dim(game))
+    println(io, "  Control dimension: ", control_dim(game))
+    println(io, "  Dynamics: ", typeof(game.dynamics))
+    println(io, "  Time horizon: ", game.time_horizon)
+    println(io, "  Private constraints: ", length(game.private_constraints))
+    println(io, "  Shared constraints: ", length(game.shared_constraints))
+    
+    println(io, "  Properties:")
+    println(io, "    - LQ game: ", is_lq_game(game))
+    println(io, "    - PD-GNEP: ", is_pd_gnep(game))
+    println(io, "    - Potential game: ", is_potential_game(game))
+    println(io, "    - Unconstrained: ", is_unconstrained(game))
 end

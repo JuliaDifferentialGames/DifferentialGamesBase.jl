@@ -1,38 +1,125 @@
 module DifferentialGamesBase
 
+using LinearAlgebra
+using SparseArrays
+using ForwardDiff
 
 # Includes
-include("problems/base.jl")
-include("constraints.jl")
-include("player.jl")
-include("problems/GNEP.jl")
+include("objectives.jl")           # PlayerObjective, LQStageCost, etc.
+include("constraints.jl")          # PrivateConstraint, SharedConstraint, etc.
+include("problems/GNEP.jl")  # GameProblem, dynamics specs, constructors
 
-# Exports
+# Exports - Abstract Types
 export 
-    # Abstract Types 
-    DifferentialGame, 
-    InverseDifferentialGame,
-    AbstractLQGame,
+    AbstractGame,
+    DynamicsSpec,
+    TimeHorizon,
+    
+    # Cost types (from objectives.jl)
+    AbstractCost,
+    AbstractStageCost,
+    AbstractTerminalCost,
+    AbstractConvexConstraint,
+    
+    # Constraint types (from constraints.jl)
+    AbstractConstraint,
+    AbstractEqualityConstraint,
+    AbstractInequalityConstraint,
+    PrivateConstraint,
+    SharedConstraint
 
-    # Player-based Interface 
-    ConstraintSpec,
-    Player,
+# Exports - Concrete Dynamics Types
+export
+    SeparableDynamics,
+    LinearDynamics,
+    CoupledNonlinearDynamics
 
-    # Problems 
-    AbstractGNEP, 
-    AbstractPDGNEP, 
-    AbstractPotentialGame, 
-    AbstractLexicographicGame, 
-    AbstractLQGame, 
-    LQGameProblem, 
-    GNEProblem,
-    PDGNEProblem, 
-    PotentialGameProblem, 
-    LexicographicGameProblem, 
+# Exports - Time Horizon Types
+export
+    ContinuousTime,
+    DiscreteTime
 
-    # Helper functions
-    num_players, 
-    state_dim, 
-    control_dim
+# Exports - Cost Types
+export
+    # Stage costs
+    LQStageCost,
+    DiagonalLQStageCost,
+    NonlinearStageCost,
+    SeparableCost,
+    CoupledCost,
+    
+    # Terminal costs
+    LQTerminalCost,
+    DiagonalLQTerminalCost,
+    NonlinearTerminalCost,
+    
+    # Player objective
+    PlayerObjective
+
+# Exports - Constraint Types
+export
+    # Convex constraints
+    LinearConstraint,
+    BoundConstraint,
+    NormConstraint,
+    
+    # Nonlinear constraints
+    NonlinearConstraint,
+    
+    # Constraint evaluation
+    evaluate_constraint,
+    constraint_jacobian
+
+# Exports - Cost Evaluation Interface
+export
+    evaluate_stage_cost,
+    evaluate_terminal_cost,
+    stage_cost_gradient,
+    terminal_cost_gradient,
+    stage_cost_hessian,
+    terminal_cost_hessian,
+    total_cost,
+    diagnose_scaling
+
+# Exports - Game Problem Types
+export
+    GameProblem,
+    PlayerSpec,
+    CouplingGraph,
+    GameMetadata
+
+# Exports - Game Constructors
+export
+    PDGNEProblem,
+    LQGameProblem,
+    UnconstrainedLQGame
+
+# Exports - Property Query Functions
+export
+    has_separable_dynamics,
+    is_lq_game,
+    is_potential_game,
+    has_shared_constraints,
+    is_unconstrained,
+    is_pd_gnep,
+    is_lq_pd_gnep,
+    is_separable
+
+# Exports - Helper Functions
+export
+    num_players,
+    state_dim,
+    control_dim,
+    get_objective,
+    
+    # Dynamics evaluation
+    evaluate_dynamics,
+    dynamics_jacobian,
+    
+    # Constraint type checks
+    is_equality,
+    is_inequality,
+    is_private,
+    is_shared
 
 end
