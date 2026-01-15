@@ -339,21 +339,21 @@ solution = solve(game)
 """
 struct GameProblem{T}
     n_players::Int
-    objectives::Vector{PlayerObjective}
+    objectives::Vector{<:PlayerObjective}
     dynamics::DynamicsSpec{T}
     initial_state::Vector{T}
-    private_constraints::Vector{<:PrivateConstraint}
-    shared_constraints::Vector{<:SharedConstraint}
+    private_constraints::AbstractVector
+    shared_constraints::AbstractVector
     time_horizon::TimeHorizon{T}
     metadata::GameMetadata
     
     function GameProblem{T}(
         n_players::Int,
-        objectives::Vector{PlayerObjective},
+        objectives::Vector{<:PlayerObjective},
         dynamics::DynamicsSpec{T},
         initial_state::Vector{T},
-        private_constraints::Vector{<:PrivateConstraint},
-        shared_constraints::Vector{<:SharedConstraint},
+        private_constraints::AbstractVector,
+        shared_constraints::AbstractVector,
         time_horizon::TimeHorizon{T},
         metadata::GameMetadata
     ) where {T}
@@ -465,13 +465,6 @@ Get number of players in game.
 num_players(game::GameProblem) = game.n_players
 
 """
-    state_dim(game::GameProblem)
-
-Get total state dimension (sum across all players).
-"""
-state_dim(game::GameProblem) = sum(game.metadata.state_dims)
-
-"""
     control_dim(game::GameProblem)
 
 Get total control dimension (sum across all players).
@@ -491,6 +484,13 @@ function state_dim(game::GameProblem)
         return game.metadata.state_dims[1]
     end
 end
+
+"""
+    state_dim(game::GameProblem, player::Int)
+
+Get state dimension for specific player.
+"""
+state_dim(game::GameProblem, player::Int) = game.metadata.state_dims[player]
 
 """
     control_dim(game::GameProblem, player::Int)
@@ -538,9 +538,9 @@ struct PlayerSpec{T}
     x0::Vector{T}
     dynamics::Function
     objective::PlayerObjective
-    constraints::Vector{<:PrivateConstraint}
+    constraints::AbstractVector
     
-    # Inner constructor - make constraints optional with default
+    # Inner constructor
     function PlayerSpec{T}(
         id::Int,
         n::Int,
@@ -548,7 +548,7 @@ struct PlayerSpec{T}
         x0::Vector{T},
         dynamics::Function,
         objective::PlayerObjective,
-        constraints::Vector{<:PrivateConstraint} = PrivateConstraint[]  # Optional positional
+        constraints::AbstractVector 
     ) where {T}
         @assert id > 0 "Player ID must be positive"
         @assert n > 0 "State dimension must be positive"
@@ -556,11 +556,20 @@ struct PlayerSpec{T}
         @assert length(x0) == n "Initial state must match state dimension"
         @assert objective.player_id == id "Objective player_id must match PlayerSpec id"
         
-        new{T}(id, n, m, x0, dynamics, objective, constraints)
+        new{T}(id, n, m, x0, dynamics, objective, Vector{Any}(constraints))
     end
 end
 
-# Convenience constructor 
+PlayerSpec(
+    id::Int,
+    n::Int,
+    m::Int,
+    x0::Vector{T},
+    dynamics::Function,
+    objective::PlayerObjective
+) where {T} = PlayerSpec{T}(id, n, m, x0, dynamics, objective, [])
+
+# 7-argument version (with constraints)
 PlayerSpec(
     id::Int,
     n::Int,
@@ -568,7 +577,7 @@ PlayerSpec(
     x0::Vector{T},
     dynamics::Function,
     objective::PlayerObjective,
-    constraints::Vector{<:PrivateConstraint} = PrivateConstraint[]
+    constraints::AbstractVector
 ) where {T} = PlayerSpec{T}(id, n, m, x0, dynamics, objective, constraints)
 
 """
@@ -597,7 +606,7 @@ game = PDGNEProblem([player1, player2], [collision], 10.0, 0.1)
 """
 function PDGNEProblem(
     players::Vector{PlayerSpec{T}},
-    shared_constraints::Vector{<:SharedConstraint},
+    shared_constraints::AbstractVector,
     tf::T,
     dt::T
 ) where {T}
@@ -616,9 +625,12 @@ function PDGNEProblem(
     
     # Stack initial states
     initial_state = vcat([p.x0 for p in players]...)
+
+    # Convert constraint vectors to Vector{Any}
+    shared_constraints_any = Vector{Any}(shared_constraints)
     
-    # Collect private constraints
-    private_constraints = vcat([p.constraints for p in players]...)
+    # Collect private constraints - convert to Vector{Any}
+    private_constraints = Vector{Any}(vcat([p.constraints for p in players]...))
     
     # Time horizon
     time_horizon = DiscreteTime(tf, dt)
@@ -627,8 +639,8 @@ function PDGNEProblem(
     state_offsets = [0; cumsum(state_dims)[1:end-1]]
     control_offsets = [0; cumsum(control_dims)[1:end-1]]
     
-    # Build coupling graph (simplified - could be more sophisticated)
-    cost_coupling = spzeros(Bool, n_players, n_players)
+    # Build coupling graph
+    cost_coupling = sparse(trues(n_players, n_players))
     for (i, obj) in enumerate(objectives)
         if is_separable(obj.stage_cost)
             cost_coupling[i, i] = true
@@ -638,7 +650,8 @@ function PDGNEProblem(
         end
     end
     
-    constraint_coupling = [c.players for c in shared_constraints]
+    # Extract constraint coupling - be explicit about types
+    constraint_coupling = Vector{Int}[c.players for c in shared_constraints]
     coupling_graph = CouplingGraph(cost_coupling, constraint_coupling, nothing)
     
     metadata = GameMetadata(
