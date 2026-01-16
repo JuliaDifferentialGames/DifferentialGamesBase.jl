@@ -15,6 +15,7 @@ include("time_horizon.jl")
 include("problems/GNEP.jl") 
 include("utils.jl")
 include("solutions/gnep_solutions.jl")
+include("solve.jl")
         
 
 # Exports - Abstract Types
@@ -130,7 +131,7 @@ export
     is_private,
     is_shared
 
-    # Exports - Solution
+# Exports - Solution
 export 
     Trajectory,
     GameSolution,
@@ -138,5 +139,14 @@ export
     get_cost,
     get_costs,
     is_nash_equilibrium
+
+# Exports - Solver
+export 
+    WarmstartData,
+    GameSolver,
+    solve,
+    _solve, 
+    solver_capabilities,
+    required_capabilities
 
 end
