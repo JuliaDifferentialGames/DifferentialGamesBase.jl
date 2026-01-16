@@ -44,7 +44,7 @@ function required_capabilities(game::GameProblem)
     has_shared_constraints(game) && push!(caps, :SharedConstraints)
     
     # Check dynamics properties
-    game.metadata.separable_dynamics && push!(caps, :SeparableDynamics)
+    has_separable_dynamics(game) && push!(caps, :SeparableDynamics)
     
     return unique(caps)
 end
