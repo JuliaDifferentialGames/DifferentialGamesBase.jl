@@ -28,4 +28,4 @@ MIT License - see LICENSE file for details.
 
 ## Disclosure of Generative AI Usage
 
-Generative AI, Claude, was used in the creation of this library as a programming aid including guided code generation, assistance with performance optimization, and for assistance in writing documentation. All code and documentation included in this repository, whether written by the author(s) or generative AI, has been reviewed by the author(s) for accuracy and has completed a verification and validation process upon release.
+Generative AI, Claude Sonnet 4.5, was used in the creation of this library as a programming aid including guided code generation, assistance with performance optimization, and for assistance in writing documentation. All code and documentation included in this repository, whether written by the author(s) or generative AI, has been reviewed by the author(s) for accuracy and has completed a verification process upon release.
