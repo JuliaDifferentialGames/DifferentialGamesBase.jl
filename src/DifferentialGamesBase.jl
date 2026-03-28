@@ -17,6 +17,7 @@ include("utils.jl")
 include("solutions/gnep_solutions.jl")
 include("solve.jl")
 include("problems/IGNEP.jl")
+include("solutions/ignep_solutions.jl")
         
 
 # ============================================================================
@@ -224,5 +225,13 @@ export
     ObservationData,
     push_observation!,
     InverseSolverState
+
+# ============================================================================
+# Exports - Inverse Game: Solution
+# ============================================================================
+export
+    InverseGameSolution,
+    get_weights,
+    get_weight_history 
 
 end
