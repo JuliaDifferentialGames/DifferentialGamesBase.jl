@@ -4,3 +4,4 @@ using DifferentialGamesBase  # your package module name
 
 # include("lqgp_test.jl")
 include("game_building_tests.jl")
+include("inverse_game_building_tests.jl")

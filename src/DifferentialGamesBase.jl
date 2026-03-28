@@ -16,9 +16,12 @@ include("problems/GNEP.jl")
 include("utils.jl")
 include("solutions/gnep_solutions.jl")
 include("solve.jl")
+include("problems/IGNEP.jl")
         
 
+# ============================================================================
 # Exports - Abstract Types
+# ============================================================================
 export 
     AbstractGame,
     DynamicsSpec,
@@ -37,18 +40,24 @@ export
     PrivateConstraint,
     SharedConstraint
 
+# ============================================================================
 # Exports - Concrete Dynamics Types
+# ============================================================================
 export
     SeparableDynamics,
     LinearDynamics,
     CoupledNonlinearDynamics
 
+# ============================================================================
 # Exports - Time Horizon Types
+# ============================================================================
 export
     ContinuousTime,
     DiscreteTime
 
+# ============================================================================
 # Exports - Cost Types
+# ============================================================================
 export
     # Stage costs
     LQStageCost,
@@ -65,7 +74,9 @@ export
     # Player objective
     PlayerObjective
 
+# ============================================================================
 # Exports - Constraint Types
+# ============================================================================
 export
     # Convex constraints
     LinearConstraint,
@@ -79,7 +90,9 @@ export
     evaluate_constraint,
     constraint_jacobian
 
+# ============================================================================
 # Exports - Cost Evaluation Interface
+# ============================================================================
 export
     evaluate_stage_cost,
     evaluate_terminal_cost,
@@ -90,20 +103,26 @@ export
     total_cost,
     diagnose_scaling
 
+# ============================================================================
 # Exports - Game Problem Types
+# ============================================================================
 export
     GameProblem,
     PlayerSpec,
     CouplingGraph,
     GameMetadata
 
+# ============================================================================
 # Exports - Game Constructors
+# ============================================================================
 export
     PDGNEProblem,
     LQGameProblem,
     UnconstrainedLQGame
 
+# ============================================================================
 # Exports - Property Query Functions
+# ============================================================================
 export
     has_separable_dynamics,
     is_lq_game,
@@ -114,7 +133,9 @@ export
     is_lq_pd_gnep,
     is_separable
 
+# ============================================================================
 # Exports - Helper Functions
+# ============================================================================
 export
     num_players,
     state_dim,
@@ -131,7 +152,9 @@ export
     is_private,
     is_shared
 
+# ============================================================================
 # Exports - Solution
+# ============================================================================
 export 
     Trajectory,
     GameSolution,
@@ -140,7 +163,9 @@ export
     get_costs,
     is_nash_equilibrium
 
+# ============================================================================
 # Exports - Solver
+# ============================================================================
 export 
     WarmstartData,
     GameSolver,
@@ -148,5 +173,56 @@ export
     _solve, 
     solver_capabilities,
     required_capabilities
+
+# ============================================================================
+# Exports - Inverse Game: Knowledge Specification
+# ============================================================================
+export
+    PlayerKnowledge,
+    KnownObjective,
+    UnknownObjective
+
+# ============================================================================
+# Exports - Inverse Game: Observation Model
+# ============================================================================
+export
+    ObservationModel,
+    observe,
+    observation_dim,
+    FullStateObservation,
+    NoisyObservation
+
+# ============================================================================
+# Exports - Inverse Game: Forward Solver Wrapper
+# ============================================================================
+export
+    ForwardSolverWrapper,
+    solve_forward,
+    predict_next_state
+
+# ============================================================================
+# Exports - Inverse Game: Problem Types and Constructors
+# ============================================================================
+export
+    InverseGameProblem,
+    InversePDGNEProblem
+
+# ============================================================================
+# Exports - Inverse Game: Accessors
+# ============================================================================
+export
+    unknown_players,
+    known_players,
+    known_objective,
+    n_unknown,
+    as_forward_problem
+
+# ============================================================================
+# Exports - Inverse Game: Solver State and Observation Data
+# ============================================================================
+export
+    ObservationData,
+    push_observation!,
+    InverseSolverState
 
 end
