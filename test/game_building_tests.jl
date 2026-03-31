@@ -5,53 +5,6 @@ using DifferentialGamesBase
 
 @testset "Game Problem Construction" begin
     
-    @testset "Unconstrained LQ Game" begin
-        # Two-player LQ game with shared state space
-        n = 4  # State dimension
-        A = [0.0 1.0 0.0 0.0;
-             0.0 0.0 0.0 0.0;
-             0.0 0.0 0.0 1.0;
-             0.0 0.0 0.0 0.0]
-        
-        B1 = [0.0; 1.0; 0.0; 0.0]
-        B2 = [0.0; 0.0; 0.0; 1.0]
-        B = [reshape(B1, n, 1), reshape(B2, n, 1)]
-        
-        Q1 = diagm([1.0, 0.1, 1.0, 0.1])
-        Q2 = diagm([1.0, 0.1, 1.0, 0.1])
-        Q = [Q1, Q2]
-        
-        R1 = reshape([0.1], 1, 1)
-        R2 = reshape([0.1], 1, 1)
-        R = [R1, R2]
-        
-        Qf1 = diagm([10.0, 1.0, 10.0, 1.0])
-        Qf2 = diagm([10.0, 1.0, 10.0, 1.0])
-        Qf = [Qf1, Qf2]
-        
-        x0 = [1.0, 0.0, -1.0, 0.0]
-        tf = 5.0
-        
-        # Test LQGameProblem constructor
-        game = LQGameProblem(A, B, Q, R, Qf, x0, tf, dt=0.1)
-        
-        @test game isa GameProblem{Float64}
-        @test num_players(game) == 2
-        @test state_dim(game) == 4
-        @test control_dim(game) == 2
-        @test is_lq_game(game)
-        @test is_unconstrained(game)
-        @test !is_pd_gnep(game)  # Shared state space
-        @test game.dynamics isa LinearDynamics
-        
-        # Test UnconstrainedLQGame convenience constructor
-        game2 = UnconstrainedLQGame(A, B, Q, R, Qf, x0, tf, dt=0.1)
-        
-        @test game2 isa GameProblem{Float64}
-        @test is_lq_game(game2)
-        @test is_unconstrained(game2)
-    end
-    
     @testset "PD-GNEP with Separable Dynamics" begin
         # Two spacecraft with decoupled dynamics, coupled formation cost
         

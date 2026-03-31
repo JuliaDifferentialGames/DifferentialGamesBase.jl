@@ -6,13 +6,13 @@ using ForwardDiff
 
 # Includes
 include("problems/base.jl")
-include("objectives.jl")           
-include("constraints.jl")   
-include("player.jl")
+include("objectives.jl")            
+include("constraints.jl")
 include("metadata.jl")
 include("dynamics.jl")
 include("time_horizon.jl")
-include("problems/GNEP.jl") 
+include("player_spec.jl")   
+include("problems/GNEP.jl")           
 include("utils.jl")
 include("solutions/gnep_solutions.jl")
 include("solve.jl")
@@ -50,6 +50,17 @@ export
     CoupledNonlinearDynamics
 
 # ============================================================================
+# Exports - Dynamics Accessors (LTI/LTV unified interface)
+# ============================================================================
+export
+    get_A,
+    get_B,
+    get_B_concatenated,
+    is_ltv,
+    total_state_dim,
+    total_control_dim
+
+# ============================================================================
 # Exports - Time Horizon Types
 # ============================================================================
 export
@@ -74,6 +85,16 @@ export
     
     # Player objective
     PlayerObjective
+
+# ============================================================================
+# Exports - Cost Accessors (LTI/LTV unified interface)
+# ============================================================================
+export
+    get_Q,
+    get_R,
+    get_M,
+    get_q,
+    get_r
 
 # ============================================================================
 # Exports - Constraint Types
@@ -119,6 +140,7 @@ export
 export
     PDGNEProblem,
     LQGameProblem,
+    LTVLQGameProblem,
     UnconstrainedLQGame
 
 # ============================================================================
@@ -132,7 +154,8 @@ export
     is_unconstrained,
     is_pd_gnep,
     is_lq_pd_gnep,
-    is_separable
+    is_separable,
+    n_steps
 
 # ============================================================================
 # Exports - Helper Functions
