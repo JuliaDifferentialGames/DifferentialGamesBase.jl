@@ -762,3 +762,81 @@ end
 @inline function _step_time(times::AbstractVector, k::Int, ::DynamicsSpec)
     return times[k]
 end
+
+# ============================================================================
+# linearize_dynamics — LinearDynamics specialisation (exact, no DA)
+#
+# For LinearDynamics the Jacobian is just A(k) and B(k) — no approximation
+# needed. This avoids constructing a DiscreteApproximation for LQ games.
+# ============================================================================
+
+function linearize_dynamics(
+    dyn::LinearDynamics{T},
+    X::AbstractMatrix,
+    U::AbstractMatrix,
+    ::Nothing,           # da=nothing signals exact extraction
+    times::AbstractVector
+) where {T}
+    N = size(U, 2)
+    n = total_state_dim(dyn)
+    m = total_control_dim(dyn)
+
+    A_full = Vector{Matrix{T}}(undef, N)
+    B_full = Vector{Matrix{T}}(undef, N)
+    c      = Vector{Vector{T}}(undef, N)
+
+    for k in 1:N
+        Ak = get_A(dyn, k)
+        Bk = get_B_concatenated(dyn, k)
+        xk = X[:, k]; uk = U[:, k]
+        A_full[k] = Matrix{T}(Ak)
+        B_full[k] = Matrix{T}(Bk)
+        # Affine defect is zero by construction for feasible LQ trajectories.
+        c[k] = X[:, k+1] .- Ak * xk .- Bk * uk
+    end
+
+    return DynamicsExpansion{T}(
+        A_full, B_full, c,
+        nothing, nothing,   # no block structure for LinearDynamics
+        n, m, N,
+        false               # not SeparableDynamics
+    )
+end
+
+# ============================================================================
+# expand — LinearDynamics overload (da = nothing)
+#
+# Allows iLQGames to call expand(game, nothing, X, U) for games with
+# LinearDynamics, avoiding unnecessary DiscreteApproximation construction.
+# ============================================================================
+
+"""
+    expand(game, X, U, da=nothing; regularize=true) -> TrajectoryExpansion
+
+Overload that accepts `da=nothing` for `LinearDynamics` games.
+The Jacobians are extracted analytically from the A/B matrices.
+Calling with `da::DiscreteApproximation` dispatches to the main overload.
+"""
+function expand(
+    game::GameProblem{T},
+    X::AbstractMatrix,
+    U::AbstractMatrix,
+    ::Nothing;
+    regularize::Bool = true
+) where {T}
+    @assert(game.dynamics isa LinearDynamics,
+        "expand with da=nothing requires LinearDynamics; " *
+        "provide a DiscreteApproximation for nonlinear dynamics")
+
+    N     = size(U, 2)
+    N_th  = n_steps(game)
+    @assert(N == N_th, "U has $N columns but game has $N_th steps")
+
+    th    = game.time_horizon
+    times = collect(range(zero(T), th.tf, length=N+1))
+
+    dyn_exp  = linearize_dynamics(game.dynamics, X, U, nothing, times)
+    cost_exp = quadraticize_costs(game, X, U, times; regularize)
+
+    return TrajectoryExpansion{T}(dyn_exp, cost_exp, Matrix{T}(X), Matrix{T}(U), times)
+end
