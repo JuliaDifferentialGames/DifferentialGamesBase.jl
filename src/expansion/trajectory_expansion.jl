@@ -398,16 +398,39 @@ function quadraticize_costs(
             xik = xk[soi+1:soi+n_xi]  # player i's state slice
             tk  = Int(k)
 
-            # Stage cost Hessians
+            # Stage cost Hessians and gradients at reference (xik, uik)
             Hxxk, Huuk, Hxuk = _stage_hessian(obj.stage_cost, xk, xik, uik, soi, n_xi, mi, n, nothing, tk)
             gxk, guk         = _stage_gradient(obj.stage_cost, xk, xik, uik, soi, n_xi, mi, n, nothing, tk)
             ℓk               = evaluate_stage_cost(obj.stage_cost, xik, uik, nothing, tk)
 
-            Hxx[i][k]   = regularize ? _psd_project(Hxxk) : Hxxk
-            Huu[i][k]   = regularize ? _psd_project(Huuk) : Huuk
+            # Convert gradient-at-reference to affine term in absolute coordinates.
+            #
+            # The Taylor expansion of ℓ(x, u) around (x_ref, u_ref) is:
+            #   ℓ ≈ ½δx'Hxx δx + ½δu'Huu δu + δx'Hxu δu + gx'δx + gu'δu + ℓ_ref
+            # where δx = x - x_ref, δu = u - u_ref.
+            #
+            # Re-expressed in absolute coordinates (substituting δx = x - x_ref):
+            #   ℓ ≈ ½x'Hxx x + ½u'Huu u + x'Hxu u
+            #       + (gx - Hxx·x_ref - Hxu·u_ref)'x
+            #       + (gu - Huu·u_ref - Hxu'·x_ref)'u + const
+            #
+            # So the correct affine terms for the LQ subgame are:
+            #   q = gx - Hxx·x_ref - Hxu·u_ref
+            #   r = gu - Huu·u_ref - Hxu'·x_ref
+            #
+            # Without this correction, FNELQ operates in absolute coordinates
+            # but the gradients encode the reference offset, causing the subgame
+            # optimum to diverge from the intended δ-optimal correction.
+            Hxxk_reg = regularize ? _psd_project(Hxxk) : Hxxk
+            Huuk_reg = regularize ? _psd_project(Huuk) : Huuk
+            qk = gxk - Hxxk_reg * xk  - Hxuk * uik
+            rk = guk - Huuk_reg * uik - Hxuk' * xk
+
+            Hxx[i][k]   = Hxxk_reg
+            Huu[i][k]   = Huuk_reg
             Hxu[i][k]   = Hxuk
-            gx[i][k]    = gxk
-            gu[i][k]    = guk
+            gx[i][k]    = qk
+            gu[i][k]    = rk
             ℓ_val[i][k] = ℓk
         end
 
@@ -418,8 +441,12 @@ function quadraticize_costs(
         gx_fk  = _terminal_gradient(obj.terminal_cost, xiN, soi, n_xi, n, nothing)
         ℓ_fk   = evaluate_terminal_cost(obj.terminal_cost, xiN, nothing)
 
-        Hxx_f[i] = regularize ? _psd_project(Hxx_fk) : Hxx_fk
-        gx_f[i]  = gx_fk
+        Hxx_fk_reg = regularize ? _psd_project(Hxx_fk) : Hxx_fk
+        # Terminal affine correction: q_f = gx_f - Hxx_f · x_ref(N)
+        qf_k = gx_fk - Hxx_fk_reg * xN
+
+        Hxx_f[i] = Hxx_fk_reg
+        gx_f[i]  = qf_k
         ℓ_f[i]   = ℓ_fk
     end
 
