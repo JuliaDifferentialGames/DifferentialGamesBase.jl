@@ -359,7 +359,9 @@ function quadraticize_costs(
 ) where {T}
     np           = num_players(game)
     n            = total_state_dim(game.dynamics)
-    control_dims = game.dynamics.control_dims
+    # Use metadata.control_dims — works for all dynamics types including
+    # CoupledNonlinearDynamics which only stores a scalar total control_dim.
+    control_dims = game.metadata.control_dims
     state_dims   = game.metadata.state_dims
     c_offs       = [0; cumsum(control_dims)]
     # State offsets per player: for shared-state games all are 0;
@@ -640,7 +642,7 @@ function assemble_lq_game(
     N  = exp.dynamics.N
     n  = exp.dynamics.n
     np = num_players(game)
-    control_dims = game.dynamics.control_dims
+    control_dims = game.metadata.control_dims
     c_offs       = [0; cumsum(control_dims)]
 
     # Build LTV LinearDynamics from A_full, B_full
