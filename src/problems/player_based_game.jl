@@ -1,5 +1,5 @@
 # ============================================================================
-# differential_game.jl
+# player_based_game.jl
 #
 # Phase 2 additions:
 #   - Player{T}           public alias for PlayerSpec{T}
@@ -186,7 +186,14 @@ function _build_shared_dynamics_game(
     shared_constraints  = Vector{Any}(shared_constraints)
 
     state_dims   = dyn isa SeparableDynamics ? dyn.state_dims : [total_state_dim(dyn)]
-    control_dims = dyn.control_dims
+    # For CoupledNonlinearDynamics the struct only stores the total control dim
+    # (scalar); per-player breakdown comes from the players themselves.
+    # For SeparableDynamics and LinearDynamics, control_dims is a Vector field.
+    control_dims = if dyn isa CoupledNonlinearDynamics
+        [p.m for p in players]
+    else
+        dyn.control_dims
+    end
     state_offsets   = dyn isa SeparableDynamics ?
         [0; cumsum(state_dims)[1:end-1]] : [0]
     control_offsets = [0; cumsum(control_dims)[1:end-1]]
