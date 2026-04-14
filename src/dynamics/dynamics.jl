@@ -317,3 +317,6 @@ Number of players inferred from the dynamics structure.
 n_players(dyn::LinearDynamics) = length(dyn.control_dims)
 n_players(dyn::SeparableDynamics) = length(dyn.player_dynamics)
 # CoupledNonlinearDynamics does not encode n_players — query from GameProblem.
+
+is_ltv(::SeparableDynamics)        = false
+is_ltv(::CoupledNonlinearDynamics) = false

@@ -24,38 +24,6 @@ Cost evaluated once at final time t = N.
 abstract type AbstractTerminalCost <: AbstractCost end
 
 # ============================================================================
-# NOTE: LQStageCost, LQTerminalCost, and PlayerObjective are defined in
-# problems/GNEP.jl as parametric types supporting both LTI and LTV costs.
-# All evaluation methods for those types are implemented below.
-# ============================================================================
-
-# ============================================================================
-# DiagonalLQStageCost
-# ============================================================================
-
-"""
-    DiagonalLQStageCost{T} <: AbstractStageCost
-
-Diagonal LQ cost for computational efficiency: ℓ(x, u) = 1/2 xᵀ diag(qx) x + 1/2 uᵀ diag(ru) u + c
-
-# Fields
-- `qx::Vector{T}`: Diagonal state costs (n_x,), must be non-negative
-- `ru::Vector{T}`: Diagonal control costs (n_u,), must be positive
-- `c::T`: Constant offset
-"""
-struct DiagonalLQStageCost{T} <: AbstractStageCost
-    qx::Vector{T}
-    ru::Vector{T}
-    c::T
-
-    function DiagonalLQStageCost(qx::Vector{T}, ru::Vector{T}, c::T = zero(T)) where {T}
-        @assert all(qx .>= 0) "Diagonal state costs must be non-negative"
-        @assert all(ru .> 0) "Diagonal control costs must be positive"
-        new{T}(qx, ru, c)
-    end
-end
-
-# ============================================================================
 # NonlinearStageCost
 # ============================================================================
 
@@ -93,25 +61,6 @@ function NonlinearStageCost(
     is_separable::Bool = false
 )
     NonlinearStageCost(func, gradient, hessian, is_separable)
-end
-
-# ============================================================================
-# DiagonalLQTerminalCost
-# ============================================================================
-
-"""
-    DiagonalLQTerminalCost{T} <: AbstractTerminalCost
-
-Diagonal terminal cost: φ(x) = 1/2 xᵀ diag(qf) x + cf
-"""
-struct DiagonalLQTerminalCost{T} <: AbstractTerminalCost
-    qf::Vector{T}
-    cf::T
-
-    function DiagonalLQTerminalCost(qf::Vector{T}, cf::T = zero(T)) where {T}
-        @assert all(qf .>= 0) "Diagonal terminal costs must be non-negative"
-        new{T}(qf, cf)
-    end
 end
 
 # ============================================================================
@@ -193,21 +142,6 @@ function terminal_cost_gradient end
 function stage_cost_hessian end
 function terminal_cost_hessian end
 
-# ============================================================================
-# DiagonalLQStageCost Implementations
-# ============================================================================
-
-function evaluate_stage_cost(cost::DiagonalLQStageCost, x, u, p, t)
-    return 0.5 * (dot(cost.qx .* x, x) + dot(cost.ru .* u, u)) + cost.c
-end
-
-function stage_cost_gradient(cost::DiagonalLQStageCost, x, u, p, t)
-    return (cost.qx .* x, cost.ru .* u)
-end
-
-function stage_cost_hessian(cost::DiagonalLQStageCost{T}, x, u, p, t) where {T}
-    return (Diagonal(cost.qx), Diagonal(cost.ru), zeros(T, length(x), length(u)))
-end
 
 # ============================================================================
 # NonlinearStageCost Implementations
@@ -231,22 +165,6 @@ function stage_cost_hessian(cost::NonlinearStageCost, x, u, p, t)
     else
         return automatic_differentiation_hessian(cost.func, x, u, p, t)
     end
-end
-
-# ============================================================================
-# DiagonalLQTerminalCost Implementations
-# ============================================================================
-
-function evaluate_terminal_cost(cost::DiagonalLQTerminalCost, x, p)
-    return 0.5 * dot(cost.qf .* x, x) + cost.cf
-end
-
-function terminal_cost_gradient(cost::DiagonalLQTerminalCost, x, p)
-    return cost.qf .* x
-end
-
-function terminal_cost_hessian(cost::DiagonalLQTerminalCost, x, p)
-    return Diagonal(cost.qf)
 end
 
 # ============================================================================
@@ -274,24 +192,6 @@ function terminal_cost_hessian(cost::NonlinearTerminalCost, x, p)
 end
 
 # ============================================================================
-# Automatic Differentiation Helpers
-# ============================================================================
-
-function automatic_differentiation_gradient(func::F, x, u, p, t) where {F}
-    n_x = length(x)
-    z   = vcat(x, u)
-    ∇z  = ForwardDiff.gradient(z_var -> func(z_var[1:n_x], z_var[n_x+1:end], p, t), z)
-    return (∇z[1:n_x], ∇z[n_x+1:end])
-end
-
-function automatic_differentiation_hessian(func::F, x, u, p, t) where {F}
-    n_x    = length(x)
-    z      = vcat(x, u)
-    H_full = ForwardDiff.hessian(z_var -> func(z_var[1:n_x], z_var[n_x+1:end], p, t), z)
-    return (H_full[1:n_x, 1:n_x], H_full[n_x+1:end, n_x+1:end], H_full[1:n_x, n_x+1:end])
-end
-
-# ============================================================================
 # Utility Functions
 # ============================================================================
 
@@ -301,5 +201,4 @@ end
 Returns true if the stage cost depends only on player i's own (xᵢ, uᵢ).
 LQStageCost dispatch is defined in problems/GNEP.jl after the struct.
 """
-is_separable(::DiagonalLQStageCost) = true
 is_separable(c::NonlinearStageCost) = c.is_separable
