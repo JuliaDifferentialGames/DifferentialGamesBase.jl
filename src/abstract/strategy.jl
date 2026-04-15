@@ -328,7 +328,10 @@ function apply_strategy(
         û_ik   = s.nominal_controls[i][:, k]
         P_ik   = s.gains[i][k]
         α_ik   = s.feedforward[i][k]
-        u[rng] = û_ik - P_ik * δx - η .* α_ik
+        # Sanity: u = û - P·δx - η·α; with δx=0 must equal û
+        result = û_ik - P_ik * δx - η .* α_ik
+        @assert all(isfinite, result) "apply_strategy player $i k=$k: non-finite result. û=$û_ik P=$P_ik δx=$δx α=$α_ik η=$η"
+        u[rng] = result
     end
     return u
 end
