@@ -403,29 +403,34 @@ function quadraticize_costs(
             gxk, guk         = _stage_gradient(obj.stage_cost, xk, xik, uik, soi, n_xi, mi, n, nothing, tk)
             ℓk               = evaluate_stage_cost(obj.stage_cost, xik, uik, nothing, tk)
 
-            # The paper (Fridovich-Keil et al. 2020, §IV-A) explicitly neglects
-            # mixed partials D²_{x,u_j}gᵢ: "We neglect mixed partials D²_{u_j u_k}gᵢ
-            # and D²_{x u_j}gᵢ as they rarely appear in cost structures of practical
-            # interest." Both reference implementations (C++ and iLQGames.jl) set
-            # Hxu = 0. We must match this to avoid introducing an asymmetric
-            # cross-term that corrupts the S-matrix in FNELQ.
-            Hxuk = zeros(eltype(xk), n, mi)
+            # The paper (Fridovich-Keil et al. 2020, §IV-A) works in δ-coordinates:
+            #   ℓ ≈ ½δx'Hxx δx + ½δu'Huu δu + l'δx + r'δu
+            # where l = ∂ℓ/∂x̂ (raw gradient at reference) and r = ∂ℓ/∂û.
+            #
+            # The LQ subgame is assembled in these δ-coordinates. apply_strategy
+            # evaluates u = û - P·δx - η·α, which is already a δ-deviation from
+            # the reference û. FNELQ solves the δ-coordinate LQ game and returns
+            # α in δ-space; the outer loop applies it as a correction to û.
+            #
+            # Therefore store the RAW gradients as the affine terms — no
+            # reference-offset subtraction. Both iLQGames.jl and C++ ilqgames
+            # use this δ-coordinate formulation. The absolute-coordinate
+            # correction (q = gx - Hxx·x_ref) was incorrect: it zeroes out
+            # the gradient at the reference point, removing the descent signal.
+            #
+            # Mixed partials are neglected per §IV-A: "We neglect mixed partials
+            # D²_{x,u_j}gᵢ as they rarely appear in cost structures of practical
+            # interest."
+            Hxuk = zeros(eltype(xk), n, mi)   # neglect cross terms
 
-            # Convert gradient-at-reference to affine term in absolute coordinates.
-            # Taylor expansion: ℓ ≈ ½δx'Hxx δx + ½δu'Huu δu + gx'δx + gu'δu
-            # Re-expressed in absolute coordinates (δx = x - x_ref, Hxu = 0):
-            #   q = gx - Hxx·x_ref
-            #   r = gu - Huu·u_ref
             Hxxk_reg = regularize ? _psd_project(Hxxk) : Hxxk
             Huuk_reg = regularize ? _psd_project(Huuk) : Huuk
-            qk = gxk - Hxxk_reg * xk
-            rk = guk - Huuk_reg * uik
 
             Hxx[i][k]   = Hxxk_reg
             Huu[i][k]   = Huuk_reg
             Hxu[i][k]   = Hxuk
-            gx[i][k]    = qk
-            gu[i][k]    = rk
+            gx[i][k]    = gxk    # raw gradient ∂ℓ/∂x̂ — δ-coordinate affine term
+            gu[i][k]    = guk    # raw gradient ∂ℓ/∂û — δ-coordinate affine term
             ℓ_val[i][k] = ℓk
         end
 
@@ -437,12 +442,11 @@ function quadraticize_costs(
         ℓ_fk   = evaluate_terminal_cost(obj.terminal_cost, xiN, nothing)
 
         Hxx_fk_reg = regularize ? _psd_project(Hxx_fk) : Hxx_fk
-        # Terminal affine correction: q_f = gx_f - Hxx_f · x_ref(N)
-        # (No Hxu term at terminal since there is no terminal control.)
-        qf_k = gx_fk - Hxx_fk_reg * xN
+        # Terminal affine term in δ-coordinates: raw gradient ∂φ/∂x̂(N).
+        # No reference-offset correction — consistent with δ-coordinate formulation.
 
         Hxx_f[i] = Hxx_fk_reg
-        gx_f[i]  = qf_k
+        gx_f[i]  = gx_fk    # raw terminal gradient
         ℓ_f[i]   = ℓ_fk
     end
 
