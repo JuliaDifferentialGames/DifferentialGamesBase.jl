@@ -152,7 +152,8 @@ export
     evaluate_dynamics,
     dynamics_jacobian,
     rollout,
-    rollout_strategy
+    rollout_strategy, 
+    _rollout_step
 
 # ============================================================================
 # Exports — Cost Term DSL
