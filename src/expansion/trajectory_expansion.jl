@@ -403,28 +403,23 @@ function quadraticize_costs(
             gxk, guk         = _stage_gradient(obj.stage_cost, xk, xik, uik, soi, n_xi, mi, n, nothing, tk)
             ℓk               = evaluate_stage_cost(obj.stage_cost, xik, uik, nothing, tk)
 
+            # The paper (Fridovich-Keil et al. 2020, §IV-A) explicitly neglects
+            # mixed partials D²_{x,u_j}gᵢ: "We neglect mixed partials D²_{u_j u_k}gᵢ
+            # and D²_{x u_j}gᵢ as they rarely appear in cost structures of practical
+            # interest." Both reference implementations (C++ and iLQGames.jl) set
+            # Hxu = 0. We must match this to avoid introducing an asymmetric
+            # cross-term that corrupts the S-matrix in FNELQ.
+            Hxuk = zeros(eltype(xk), n, mi)
+
             # Convert gradient-at-reference to affine term in absolute coordinates.
-            #
-            # The Taylor expansion of ℓ(x, u) around (x_ref, u_ref) is:
-            #   ℓ ≈ ½δx'Hxx δx + ½δu'Huu δu + δx'Hxu δu + gx'δx + gu'δu + ℓ_ref
-            # where δx = x - x_ref, δu = u - u_ref.
-            #
-            # Re-expressed in absolute coordinates (substituting δx = x - x_ref):
-            #   ℓ ≈ ½x'Hxx x + ½u'Huu u + x'Hxu u
-            #       + (gx - Hxx·x_ref - Hxu·u_ref)'x
-            #       + (gu - Huu·u_ref - Hxu'·x_ref)'u + const
-            #
-            # So the correct affine terms for the LQ subgame are:
-            #   q = gx - Hxx·x_ref - Hxu·u_ref
-            #   r = gu - Huu·u_ref - Hxu'·x_ref
-            #
-            # Without this correction, FNELQ operates in absolute coordinates
-            # but the gradients encode the reference offset, causing the subgame
-            # optimum to diverge from the intended δ-optimal correction.
+            # Taylor expansion: ℓ ≈ ½δx'Hxx δx + ½δu'Huu δu + gx'δx + gu'δu
+            # Re-expressed in absolute coordinates (δx = x - x_ref, Hxu = 0):
+            #   q = gx - Hxx·x_ref
+            #   r = gu - Huu·u_ref
             Hxxk_reg = regularize ? _psd_project(Hxxk) : Hxxk
             Huuk_reg = regularize ? _psd_project(Huuk) : Huuk
-            qk = gxk - Hxxk_reg * xk  - Hxuk * uik
-            rk = guk - Huuk_reg * uik - Hxuk' * xk
+            qk = gxk - Hxxk_reg * xk
+            rk = guk - Huuk_reg * uik
 
             Hxx[i][k]   = Hxxk_reg
             Huu[i][k]   = Huuk_reg
@@ -443,6 +438,7 @@ function quadraticize_costs(
 
         Hxx_fk_reg = regularize ? _psd_project(Hxx_fk) : Hxx_fk
         # Terminal affine correction: q_f = gx_f - Hxx_f · x_ref(N)
+        # (No Hxu term at terminal since there is no terminal control.)
         qf_k = gx_fk - Hxx_fk_reg * xN
 
         Hxx_f[i] = Hxx_fk_reg
