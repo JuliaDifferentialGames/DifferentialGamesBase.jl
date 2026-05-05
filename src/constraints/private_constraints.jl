@@ -93,6 +93,8 @@ function constraint_jacobian(c::ControlBounds{T}, x, u, p, t) where {T}
     return (Jx, Ju)
 end
 
+is_convex(::ControlBounds) = true
+
 # ============================================================================
 # StateBounds — box constraint on player i's state
 # ============================================================================
@@ -166,6 +168,8 @@ function constraint_jacobian(c::StateBounds{T}, x, u, p, t) where {T}
     Jx[ni+1:end, sr] =  Matrix{T}(I, ni, ni)
     return (Jx, Ju)
 end
+
+is_convex(::StateBounds) = true
 
 # ============================================================================
 # PrivateNonlinear — general scalar/vector private constraint

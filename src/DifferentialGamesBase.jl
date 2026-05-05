@@ -49,6 +49,7 @@ include("constraints/base_constraints.jl")
 include("constraints/private_constraints.jl")
 include("constraints/shared_constraints.jl")
 include("constraints/standard_constraints.jl")
+include("constraints/continuous_time_constraints.jl")
 include("metadata.jl")
 include("dynamics/dynamics.jl")
 include("time_horizon.jl")
@@ -75,6 +76,7 @@ export
     AbstractStochasticGame,
     AbstractPartiallyObservableGame,
     AbstractInverseGameProblem,
+    AbstractPotentialGame,
     is_deterministic,
     is_stochastic,
     is_partially_observable,
@@ -151,8 +153,9 @@ export
 export
     evaluate_dynamics,
     dynamics_jacobian,
+    dynamics_residual,
     rollout,
-    rollout_strategy, 
+    rollout_strategy,
     _rollout_step
 
 # ============================================================================
@@ -237,12 +240,15 @@ export
     is_shared,
     is_equality,
     is_inequality,
+    is_convex,
     get_player,
     get_players,
     evaluate_constraint,
     constraint_jacobian,
     is_active,
     constraint_violation,
+    exterior_penalty_cubic,
+    exterior_penalty_cubic_grad,
     ControlBounds,
     StateBounds,
     PrivateNonlinearInequality,
@@ -260,7 +266,9 @@ export
     state_bounds,
     collision_avoidance,
     keep_in_range,
-    linear_coupling
+    linear_coupling,
+    ContinuousTimeConstraint,
+    continuous_time_constraint
 
 # ============================================================================
 # Exports — Game Problem

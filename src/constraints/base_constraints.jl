@@ -244,3 +244,55 @@ function constraint_violation(c::AbstractConstraint, x, u, p, t)
         return maximum(abs.(v))
     end
 end
+
+# ============================================================================
+# Convexity trait — used by FALCON to route constraints to h_cvx (hard SOCP)
+# vs. linearized AL penalty.  Default: false (nonlinear/nonconvex).
+# Override to true for any constraint that is convex in the full trajectory z.
+# ============================================================================
+
+"""
+    is_convex(c::AbstractConstraint) -> Bool
+
+Returns `true` if the constraint is convex in the decision variable z.
+
+Convex constraints are treated as hard constraints `h_cvx(z) ≤ 0` in the
+SCP SOCP (Problem 3 of the FALCON paper) rather than being linearized and
+penalised via the augmented Lagrangian.  Default is `false`.
+
+Override to `true` for any concrete type that is provably convex (e.g.,
+`ControlBounds`, `StateBounds`, linear coupling constraints).
+"""
+is_convex(::AbstractConstraint) = false
+
+# ============================================================================
+# Exterior penalty — cubic form q_c(z) = [z]^3_+, C^2 on R
+#
+# Used by FALCON's continuous-time constraint formulation (Section IV.A,
+# Eq. 6) to accumulate constraint violation along a trajectory.
+#
+# q_c(z) = 0        for z ≤ 0
+#         = z^3      for z > 0
+#
+# Properties (required by Assumption 3 in the paper):
+#   q_c(0) = 0, q_c'(0) = 0, q_c''(0) = 0  (C^2 at 0)
+#   q_c(z) > 0  for z > 0
+# ============================================================================
+
+"""
+    exterior_penalty_cubic(z) -> typeof(z)
+
+Cubic exterior penalty: `q_c(z) = max(0, z)^3`.  C² on ℝ.
+
+Used to accumulate constraint violation in the continuous-time augmented
+state formulation (FALCON Eq. 6).  The previous `[z]²₊` is only C¹ and does
+not satisfy the C² requirement of Assumption 3.
+"""
+exterior_penalty_cubic(z) = max(zero(z), z)^3
+
+"""
+    exterior_penalty_cubic_grad(z) -> typeof(z)
+
+Gradient of the cubic exterior penalty: `(q_c)'(z) = 3 max(0, z)^2`.
+"""
+exterior_penalty_cubic_grad(z) = 3 * max(zero(z), z)^2

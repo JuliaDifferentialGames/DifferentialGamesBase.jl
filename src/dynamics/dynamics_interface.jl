@@ -139,6 +139,49 @@ function _ad_jac(f::F, x, u) where {F}
 end
 
 # ============================================================================
+# dynamics_residual — nonlinear constraint D^i(z^i) for solver use
+# ============================================================================
+
+"""
+    dynamics_residual(dyn, i, z_flat, dt) -> Vector{T}
+
+Evaluate the nonlinear discrete-time dynamics residual for player `i`:
+
+    D^i(z^i) = [x^i_{t+1} - f^i(x^i_t, u^i_t, dt)]_{t=0}^{N-1}
+
+where `z_flat` is the flat trajectory vector for player i in the layout
+`[x_0; u_0; x_1; u_1; ...; x_{N-1}; u_{N-1}; x_N]` with `n_x` state
+and `n_u` control dimensions per step.
+
+`dt` is the time step for Euler discretisation: `x_{t+1} ≈ x_t + dt·f(x_t, u_t)`.
+
+Returns a vector of length `N·n_x` stacking the per-step residuals.
+Zero at a dynamically feasible trajectory.
+"""
+function dynamics_residual(
+    dyn::SeparableDynamics{T},
+    i::Int,
+    z_flat::AbstractVector,
+    dt::Real
+) where {T}
+    n_x = dyn.state_dims[i]
+    n_u = dyn.control_dims[i]
+    step = n_x + n_u
+    N    = (length(z_flat) - n_x) ÷ step
+    @assert length(z_flat) == N * step + n_x "z_flat length mismatch for player $i"
+    fi   = dyn.player_dynamics[i]
+    res  = Vector{eltype(z_flat)}(undef, N * n_x)
+    for t in 0:N-1
+        x_t   = z_flat[t*step + 1         : t*step + n_x]
+        u_t   = z_flat[t*step + n_x + 1   : t*step + n_x + n_u]
+        x_tp1 = z_flat[(t+1)*step + 1     : (t+1)*step + n_x]
+        x_next = x_t .+ dt .* fi(x_t, u_t, nothing, t * dt)
+        res[t*n_x+1 : (t+1)*n_x] = x_tp1 .- x_next
+    end
+    return res
+end
+
+# ============================================================================
 # DiffEq integration stubs — overridden by DifferentialGamesBaseDiffEqExt
 # ============================================================================
 

@@ -93,6 +93,25 @@ This is categorically not a game being *solved* — it is a game being
 """
 abstract type AbstractInverseGameProblem{T} <: AbstractGameProblem{T} end
 
+"""
+    AbstractPotentialGame{T} <: AbstractDeterministicGame{T}
+
+A deterministic game that admits a potential function Φ such that any
+minimizer of Φ over the joint decision space is a variational Nash
+equilibrium (v-NE) of the game.
+
+This is used by FALCON's inner solve: the convexified subproblem (Problem 3)
+has a strongly-convex potential Φ_k (Eq. 17), whose unique minimizer is the
+v-NE of the convexified game (Lemma V.3).  Solvers dispatch on this type to
+exploit the joint-minimization structure.
+
+Subtypes must implement the standard `AbstractGameProblem` interface.
+`ConvexifiedGame{T}` in the FALCON package subtypes this.
+"""
+abstract type AbstractPotentialGame{T} <: AbstractDeterministicGame{T} end
+
+is_potential_game(::AbstractPotentialGame) = true
+
 # ============================================================================
 # Interface — required methods on AbstractGameProblem
 # ============================================================================
