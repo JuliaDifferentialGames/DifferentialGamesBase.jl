@@ -1,6 +1,8 @@
 # DifferentialGamesBase.jl
 
 [![CI](https://github.com/JuliaDifferentialGames/DifferentialGamesBase.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/JuliaDifferentialGames/DifferentialGamesBase.jl/actions/workflows/CI.yml)
+[![Docs](https://img.shields.io/badge/docs-DifferentialGames.jl-blue.svg)](https://JuliaDifferentialGames.github.io/DifferentialGames.jl/stable)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![SciML Code Style](https://img.shields.io/static/v1?label=code%20style&message=SciML&color=9558b2&labelColor=389826)](https://github.com/SciML/SciMLStyle)
 
 Core problem-specification and interface library for the [DifferentialGames.jl](https://github.com/JuliaDifferentialGames/DifferentialGames.jl) ecosystem.
