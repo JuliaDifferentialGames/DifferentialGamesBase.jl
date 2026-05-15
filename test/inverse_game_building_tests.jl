@@ -236,12 +236,10 @@ end
         spec1 = make_player(1, n, m, zeros(n))
         spec2 = make_player(2, n, m, ones(n))
 
-        collision = NonlinearConstraint(
-            (x, u, p, t) -> [5.0^2 - sum((x[1:3] - x[7:9]).^2)],
-            1,
-            constraint_type = :inequality
+        shared = SharedInequality([1, 2];
+            func = (x, u, p, t) -> [5.0^2 - sum((x[1:3] - x[7:9]).^2)],
+            dim  = 1
         )
-        shared = SharedConstraint(collision, [1, 2])
 
         stage_1    = DiagonalLQStageCost(ones(n), 0.1 * ones(m))
         terminal_1 = DiagonalLQTerminalCost(10.0 * ones(n))

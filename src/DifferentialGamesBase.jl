@@ -37,8 +37,10 @@ using ForwardDiff
 # 18. solutions/gnep_solutions.jl      — GNEPSolution, AbstractSolution,
 #                                        Trajectory
 # 19. solve.jl                         — GameSolver, solve(), WarmstartData
-# 20. problems/IGNEP.jl                — (pending overhaul, commented out)
-# 21. solutions/ignep_solutions.jl     — (pending overhaul, commented out)
+# 20. problems/IGNEP.jl                — InverseGameProblem, InversePDGNEProblem,
+#                                        ForwardSolverWrapper, ObservationModel,
+#                                        PlayerKnowledge, ObservationData
+# 21. solutions/ignep_solutions.jl     — InverseGameSolution
 # ============================================================================
 
 include("abstract/game_problem.jl")
@@ -64,8 +66,8 @@ include("objectives/cost_terms.jl")
 include("objectives/standard_costs.jl")
 include("solutions/gnep_solutions.jl")
 include("solve.jl")
-# include("problems/IGNEP.jl")
-# include("solutions/ignep_solutions.jl")
+include("problems/IGNEP.jl")
+include("solutions/ignep_solutions.jl")
 
 # ============================================================================
 # Exports — Abstract Game Hierarchy
@@ -245,6 +247,7 @@ export
     get_players,
     evaluate_constraint,
     constraint_jacobian,
+    constraint_output_dim,
     is_active,
     constraint_violation,
     exterior_penalty_cubic,
@@ -297,6 +300,7 @@ export
     n_steps,
     n_players,
     num_players,
+    state_dim,
     control_dim
 
 # ============================================================================
@@ -363,5 +367,46 @@ export
     expand,
     assemble_lq_game,
     reference_trajectory
+
+# ============================================================================
+# Exports — Diagonal LQ Convenience Constructors
+# ============================================================================
+export
+    DiagonalLQStageCost,
+    DiagonalLQTerminalCost
+
+# ============================================================================
+# Exports — GNEPSolution helpers
+# ============================================================================
+export first_step_state
+
+# ============================================================================
+# Exports — Inverse Game (IGNEP)
+# ============================================================================
+export
+    PlayerKnowledge,
+    KnownObjective,
+    UnknownObjective,
+    ObservationModel,
+    observe,
+    observation_dim,
+    FullStateObservation,
+    NoisyObservation,
+    ForwardSolverWrapper,
+    solve_forward,
+    predict_next_state,
+    InverseGameProblem,
+    InverseSolverState,
+    ObservationData,
+    push_observation!,
+    InversePDGNEProblem,
+    unknown_players,
+    known_players,
+    n_unknown,
+    known_objective,
+    as_forward_problem,
+    InverseGameSolution,
+    get_weights,
+    get_weight_history
 
 end

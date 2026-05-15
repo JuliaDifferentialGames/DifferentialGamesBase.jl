@@ -299,6 +299,15 @@ function constraint_jacobian(
 end
 
 # ============================================================================
+# constraint_output_dim — output dimension of evaluate_constraint
+# ============================================================================
+
+constraint_output_dim(::ProximityConstraint)      = 1
+constraint_output_dim(::CommunicationConstraint)  = 1
+constraint_output_dim(c::SharedNonlinearInequality) = c.dim
+constraint_output_dim(c::SharedNonlinearEquality)   = c.dim
+
+# ============================================================================
 # Ergonomic constructors
 # ============================================================================
 

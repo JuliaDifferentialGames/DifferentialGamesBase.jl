@@ -57,12 +57,7 @@ using DifferentialGamesBase
             return [d_safe^2 - dist_sq]  # <= 0 means collision-free
         end
         
-        collision = NonlinearConstraint(
-            collision_constraint,
-            1,
-            constraint_type = :inequality
-        )
-        shared_collision = SharedConstraint(collision, [1, 2])
+        shared_collision = SharedInequality([1, 2]; func=collision_constraint, dim=1)
         
         # Build PD-GNEP
         game = PDGNEProblem([player1, player2], [shared_collision], 10.0, 0.1)
@@ -123,10 +118,10 @@ using DifferentialGamesBase
         @test state_dim(game) == 7
         @test control_dim(game) == 5
         
-        # All costs are LQ (diagonal variant)
+        # All costs are LQ (built with diagonal convenience constructors)
         for obj in game.objectives
-            @test obj.stage_cost isa DiagonalLQStageCost
-            @test obj.terminal_cost isa DiagonalLQTerminalCost
+            @test obj.stage_cost isa LQStageCost
+            @test obj.terminal_cost isa LQTerminalCost
         end
     end
     
@@ -198,8 +193,8 @@ using DifferentialGamesBase
             objectives,
             dynamics,
             x0,
-            PrivateConstraint[],
-            SharedConstraint[],
+            AbstractPrivateConstraint[],
+            AbstractSharedConstraint[],
             time_horizon,
             metadata
         )
@@ -225,11 +220,11 @@ using DifferentialGamesBase
         
         # Control bounds: -1 <= u1 <= 1
         u_max = 1.0
-        bounds_1 = BoundConstraint([-u_max], [u_max], applies_to=:u)
-        private_bounds_1 = PrivateConstraint(bounds_1, 1)
-        
-        player1 = PlayerSpec(1, n1, m1, x0_1, dynamics_1, objective_1, 
-                            [private_bounds_1])
+        bounds_1 = control_bounds(1; control_offset=0, control_dim=m1,
+                                  lower=[-u_max], upper=[u_max])
+
+        player1 = PlayerSpec(1, n1, m1, x0_1, dynamics_1, objective_1,
+                            [bounds_1])
         
         # Player 2: similar
         n2, m2 = 2, 1
@@ -241,11 +236,11 @@ using DifferentialGamesBase
         terminal_2 = DiagonalLQTerminalCost([10.0, 1.0])
         objective_2 = PlayerObjective(2, stage_2, terminal_2)
         
-        bounds_2 = BoundConstraint([-u_max], [u_max], applies_to=:u)
-        private_bounds_2 = PrivateConstraint(bounds_2, 2)
-        
+        bounds_2 = control_bounds(2; control_offset=m1, control_dim=m2,
+                                  lower=[-u_max], upper=[u_max])
+
         player2 = PlayerSpec(2, n2, m2, x0_2, dynamics_2, objective_2,
-                            [private_bounds_2])
+                            [bounds_2])
         
         game = PDGNEProblem([player1, player2], 5.0, 0.1)
         
@@ -258,14 +253,14 @@ using DifferentialGamesBase
         # Extract player 1's constraints
         p1_constraints = filter(c -> c.player == 1, game.private_constraints)
         @test length(p1_constraints) == 1
-        @test p1_constraints[1].constraint isa BoundConstraint
+        @test p1_constraints[1] isa ControlBounds
     end
     
     @testset "Three-Player Formation Game" begin
         # Three spacecraft in formation with pairwise collision avoidance
         
         players = PlayerSpec{Float64}[]
-        shared_constraints = SharedConstraint[]
+        shared_constraints = AbstractSharedConstraint[]
         
         # Create three identical players
         for i in 1:3
@@ -295,17 +290,16 @@ using DifferentialGamesBase
                 offset_i = (i - 1) * 6
                 offset_j = (j - 1) * 6
                 
-                collision_ij = NonlinearConstraint(
-                    (x, u, p, t) -> begin
+                collision_ij = SharedInequality(
+                    [i, j];
+                    func = (x, u, p, t) -> begin
                         pos_i = x[offset_i .+ (1:3)]
                         pos_j = x[offset_j .+ (1:3)]
                         [d_safe^2 - sum((pos_i - pos_j).^2)]
                     end,
-                    1,
-                    constraint_type = :inequality
+                    dim = 1
                 )
-                
-                push!(shared_constraints, SharedConstraint(collision_ij, [i, j]))
+                push!(shared_constraints, collision_ij)
             end
         end
         

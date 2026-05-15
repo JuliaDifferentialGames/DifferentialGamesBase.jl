@@ -183,6 +183,22 @@ LQTerminalCost(Qf::Matrix{T}; qf=nothing, cf=zero(T)) where {T} =
 LQTerminalCost(Qf::Matrix{T}, qf::Vector{T}) where {T} =
     LQTerminalCost(Qf, qf, zero(T))
 
+"""
+    DiagonalLQStageCost(q_diag, r_diag) -> LQStageCost
+
+Convenience constructor: build an `LQStageCost` from diagonal weight vectors.
+"""
+DiagonalLQStageCost(q_diag::AbstractVector{T}, r_diag::AbstractVector{T}) where {T} =
+    LQStageCost(diagm(q_diag), diagm(r_diag))
+
+"""
+    DiagonalLQTerminalCost(qf_diag) -> LQTerminalCost
+
+Convenience constructor: build an `LQTerminalCost` from a diagonal weight vector.
+"""
+DiagonalLQTerminalCost(qf_diag::AbstractVector{T}) where {T} =
+    LQTerminalCost(diagm(qf_diag))
+
 function evaluate_terminal_cost(cost::LQTerminalCost, x, p)
     return 0.5 * x' * cost.Qf * x + cost.qf' * x + cost.cf
 end
@@ -245,6 +261,11 @@ end
 # AbstractGameProblem interface — implement n_players for GameProblem
 # ============================================================================
 
+"""
+    n_players(game::GameProblem) -> Int
+
+Return the number of players in the game.
+"""
 n_players(g::GameProblem) = g.n_players
 
 # ============================================================================
@@ -272,9 +293,29 @@ has_separable_dynamics(g::GameProblem) = g.dynamics isa SeparableDynamics
 
 is_lq_pd_gnep(g::GameProblem) = is_pd_gnep(g) && is_lq_game(g)
 
-state_dim(g::GameProblem)   = total_state_dim(g.dynamics)
-control_dim(g::GameProblem) = total_control_dim(g.dynamics)
+"""
+    state_dim(game::GameProblem) -> Int
+    state_dim(game::GameProblem, i::Int) -> Int
 
+Total joint state dimension, or player `i`'s private state dimension for PD-GNEPs.
+"""
+state_dim(g::GameProblem)          = total_state_dim(g.dynamics)
+state_dim(g::GameProblem, i::Int)  = g.metadata.state_dims[i]
+
+"""
+    control_dim(game::GameProblem) -> Int
+    control_dim(game::GameProblem, i::Int) -> Int
+
+Total joint control dimension, or player `i`'s control dimension.
+"""
+control_dim(g::GameProblem)        = total_control_dim(g.dynamics)
+control_dim(g::GameProblem, i::Int) = g.metadata.control_dims[i]
+
+"""
+    n_steps(game::GameProblem) -> Int
+
+Number of discrete time steps `N = round(tf / dt)`.
+"""
 function n_steps(g::GameProblem{T}) where {T}
     th = g.time_horizon
     @assert th isa DiscreteTime "n_steps requires a DiscreteTime horizon"
@@ -347,6 +388,24 @@ end
 # LQGameProblem — LTI constructor
 # ============================================================================
 
+"""
+    LQGameProblem(A, B, Q, R, Qf, x0, tf; dt=0.01) -> GameProblem
+
+Construct a finite-horizon, discrete-time, linear-quadratic (LQ) game with shared state.
+
+All players observe and act on the same joint state vector `x ∈ ℝⁿ`. Dynamics are linear
+time-invariant: `x_{k+1} = A x_k + Σᵢ Bᵢ uᵢᵏ`. Each player `i` minimizes a quadratic cost
+`Σₖ (xₖᵀ Qᵢ xₖ + uᵢᵏᵀ Rᵢ uᵢᵏ) + xₙᵀ Qfᵢ xₙ`.
+
+# Arguments
+- `A`: `n×n` state transition matrix
+- `B`: `Vector{Matrix}` — `B[i]` is the `n×mᵢ` input matrix for player `i`
+- `Q`: `Vector{Matrix}` — `Q[i]` is player `i`'s `n×n` stage state cost
+- `R`: `Vector{Matrix}` — `R[i]` is player `i`'s `mᵢ×mᵢ` control cost
+- `Qf`: `Vector{Matrix}` — terminal cost matrices, one per player
+- `x0`: initial state vector
+- `tf`: final time; `dt` (keyword) is the time step
+"""
 function LQGameProblem(
     A::Matrix{T}, B::Vector{Matrix{T}},
     Q::Vector{Matrix{T}}, R::Vector{Matrix{T}}, Qf::Vector{Matrix{T}},
@@ -392,6 +451,18 @@ end
 # LTVLQGameProblem — LTV constructor
 # ============================================================================
 
+"""
+    LTVLQGameProblem(A_seq, B_seq, Q_seq, R_seq, Qf, x0, tf; dt=0.01) -> GameProblem
+
+Construct a finite-horizon, discrete-time, linear time-varying (LTV) LQ game.
+
+Like `LQGameProblem` but with time-varying matrices. Indexing convention:
+- `A_seq[k]` — state matrix at step `k`
+- `B_seq[i][k]` — player `i`'s input matrix at step `k`
+- `Q_seq[i][k]` — player `i`'s state cost at step `k`
+- `R_seq[i][k]` — player `i`'s control cost at step `k`
+- `Qf[i]` — player `i`'s terminal cost matrix
+"""
 function LTVLQGameProblem(
     A_seq::Vector{Matrix{T}}, B_seq::Vector{Vector{Matrix{T}}},
     Q_seq::Vector{Vector{Matrix{T}}}, R_seq::Vector{Vector{Matrix{T}}},
@@ -440,6 +511,21 @@ end
 # PDGNEProblem — PD-GNEP constructor
 # ============================================================================
 
+"""
+    PDGNEProblem(players, shared_constraints, tf, dt) -> GameProblem
+    PDGNEProblem(players, tf, dt) -> GameProblem
+
+Construct a Partially-Decoupled Generalized Nash Equilibrium Problem (PD-GNEP).
+
+Each player has independent state and dynamics; players interact only through costs and
+optional shared constraints. The joint state is the concatenation of all player states.
+
+# Arguments
+- `players`: `Vector{PlayerSpec{T}}` — one entry per player
+- `shared_constraints`: inter-player constraints (omit or pass `[]` for none)
+- `tf`: final time
+- `dt`: time step
+"""
 function PDGNEProblem(
     players::Vector{PlayerSpec{T}},
     shared_constraints::AbstractVector,

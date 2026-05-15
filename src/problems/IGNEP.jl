@@ -42,7 +42,18 @@ Abstract type mapping joint game states to observable quantities.
 """
 abstract type ObservationModel end
 
+"""
+    observe(model::ObservationModel, x::AbstractVector) -> AbstractVector
+
+Apply the observation model to joint state `x`, returning the observable vector.
+"""
 function observe end
+
+"""
+    observation_dim(model::ObservationModel) -> Int
+
+Return the dimension of the observation vector produced by `model`.
+"""
 function observation_dim end
 
 """
@@ -109,6 +120,12 @@ configuration only (options, parameters). Mutable cache lives in the solver stat
 """
 abstract type ForwardSolverWrapper end
 
+"""
+    solve_forward(wrapper::ForwardSolverWrapper, prob::GameProblem, x0) -> GNEPSolution
+
+Solve the forward game problem from initial state `x0` and return the full solution.
+Must be implemented by each `ForwardSolverWrapper` subtype.
+"""
 function solve_forward end
 
 """
@@ -203,15 +220,35 @@ end
 # Accessors
 # ============================================================================
 
+"""
+    unknown_players(prob::InverseGameProblem) -> Vector{Int}
+
+Return the player indices whose objectives are unknown (to be inferred).
+"""
 unknown_players(prob::InverseGameProblem) =
     [i for (i, k) in enumerate(prob.knowledge) if k isa UnknownObjective]
 
+"""
+    known_players(prob::InverseGameProblem) -> Vector{Int}
+
+Return the player indices whose objectives are known.
+"""
 known_players(prob::InverseGameProblem) =
     [i for (i, k) in enumerate(prob.knowledge) if k isa KnownObjective]
 
+"""
+    n_unknown(prob::InverseGameProblem) -> Int
+
+Return the number of players with unknown objectives.
+"""
 n_unknown(prob::InverseGameProblem) =
     count(k isa UnknownObjective for k in prob.knowledge)
 
+"""
+    known_objective(prob::InverseGameProblem, i::Int) -> PlayerObjective
+
+Return the known objective for player `i`. Throws if player `i` is not a known player.
+"""
 function known_objective(prob::InverseGameProblem, i::Int)
     k = prob.knowledge[i]
     k isa KnownObjective || error("Player $i has an unknown objective")
@@ -283,6 +320,11 @@ mutable struct ObservationData{T}
     end
 end
 
+"""
+    push_observation!(data::ObservationData{T}, x::Vector{T}, t::T) -> ObservationData
+
+Append a new joint state observation `x` at time `t` to `data`.
+"""
 function push_observation!(data::ObservationData{T}, x::Vector{T}, t::T) where {T}
     push!(data.states, copy(x))   # copy: avoid aliasing with external buffers
     push!(data.times, t)

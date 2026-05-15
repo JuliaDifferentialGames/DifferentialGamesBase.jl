@@ -252,6 +252,15 @@ function constraint_jacobian(c::Union{PrivateNonlinearInequality, PrivateNonline
 end
 
 # ============================================================================
+# constraint_output_dim — output dimension of evaluate_constraint
+# ============================================================================
+
+constraint_output_dim(c::ControlBounds)              = 2 * c.control_dim
+constraint_output_dim(c::StateBounds)                = 2 * c.state_dim
+constraint_output_dim(c::PrivateNonlinearInequality) = c.dim
+constraint_output_dim(c::PrivateNonlinearEquality)   = c.dim
+
+# ============================================================================
 # Ergonomic constructors
 # ============================================================================
 

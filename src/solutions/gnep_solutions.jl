@@ -175,12 +175,22 @@ is_open_loop_solution(sol::GNEPSolution) = sol.equilibrium_type == :OpenLoopNash
 # Accessors
 # ============================================================================
 
+"""
+    get_trajectory(sol::GNEPSolution, player_id::Int) -> Trajectory
+
+Return the `Trajectory` for the given player. Throws if `player_id` is not in the solution.
+"""
 function get_trajectory(sol::GNEPSolution, player_id::Int)
     idx = findfirst(t -> t.player_id == player_id, sol.trajectories)
     isnothing(idx) && error("No trajectory for player $player_id")
     return sol.trajectories[idx]
 end
 
+"""
+    get_cost(sol::GNEPSolution, player_id::Int) -> Real
+
+Return player `player_id`'s total accumulated cost in the solution.
+"""
 get_cost(sol::GNEPSolution, player_id::Int) = get_trajectory(sol, player_id).cost
 
 function get_costs(sol::GNEPSolution{T}) where {T}
@@ -198,6 +208,20 @@ end
 # ============================================================================
 # Display
 # ============================================================================
+
+"""
+    first_step_state(sol::GNEPSolution{T}) -> Vector{T}
+
+Return the joint state at the first time step (k=2) of the solution.
+Used by `predict_next_state` in inverse game solvers.
+"""
+function first_step_state(sol::GNEPSolution{T}) where {T}
+    if has_shared_state(sol)
+        return sol.state_trajectory[:, 2]
+    else
+        return vcat([traj.states[:, 2] for traj in sort(sol.trajectories, by=t -> t.player_id)]...)
+    end
+end
 
 function Base.show(io::IO, sol::GNEPSolution{T}) where {T}
     status = sol.converged ? "CONVERGED" : "NOT CONVERGED"

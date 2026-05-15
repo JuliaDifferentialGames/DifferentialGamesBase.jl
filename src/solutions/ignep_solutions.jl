@@ -23,7 +23,7 @@ struct InverseGameSolution{T}
     weights::Dict{Int, Vector{T}}
     weight_history::Dict{Int, Matrix{T}}
     ensemble_history::Dict{Int, Array{T, 3}}
-    forward_solution::Union{Nothing, GameSolution{T}}
+    forward_solution::Union{Nothing, GNEPSolution{T}}
     converged::Bool
     solve_time::Float64
     solver_info::Dict{Symbol, Any}
