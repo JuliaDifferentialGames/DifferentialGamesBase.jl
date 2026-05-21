@@ -33,7 +33,7 @@ Pkg.add(url="https://github.com/JuliaDifferentialGames/DifferentialGames.jl")
 To use this package directly:
 
 ```julia
-Pkg.add(url="https://github.com/JuliaDifferentialGames/DifferentialGamesBase.jl")
+] add DifferentialGamesBase
 ```
 
 ## Quick Example
