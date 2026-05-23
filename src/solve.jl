@@ -152,3 +152,20 @@ function solve(
     end
     return _solve(game, solver, warmstart, verbose)
 end
+
+"""
+    solve(game::AbstractGameProblem, solver::GameSolver; kwargs...) -> AbstractSolution
+
+General dispatch entry point for game types beyond `GameProblem` (e.g.
+`LexicographicGameProblem`, `ConvexGameProblem`). Solver packages implement
+`_solve(game::ConcreteType, solver::ConcreteSolver, warmstart, verbose)`.
+"""
+function solve(
+    game    ::AbstractGameProblem,
+    solver  ::GameSolver;
+    warmstart::Union{Nothing, GNEPSolution, WarmstartData} = nothing,
+    verbose ::Bool = false,
+    kwargs...
+)
+    return _solve(game, solver, warmstart, verbose)
+end

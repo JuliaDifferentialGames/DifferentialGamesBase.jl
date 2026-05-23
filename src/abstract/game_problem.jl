@@ -111,6 +111,87 @@ Subtypes must implement the standard `AbstractGameProblem` interface.
 abstract type AbstractPotentialGame{T} <: AbstractDeterministicGame{T} end
 
 is_potential_game(::AbstractPotentialGame) = true
+is_potential_game(::AbstractGameProblem)   = false
+
+"""
+    AbstractStatePotentialGame{T} <: AbstractPotentialGame{T}
+
+State-based potential game (Marden 2012, Def 3.2). Extends potential games to include
+an underlying finite state space X with Markovian transition P: A×X → Δ(X).
+
+The potential function φ: A×X → ℝ satisfies for all i, a'ᵢ, a, x:
+  (i)  Uᵢ(a'ᵢ, a₋ᵢ, x) − Uᵢ(a, x) = φ(a'ᵢ, a₋ᵢ, x) − φ(a, x)
+  (ii) For every x' in support of P(a, x): φ(a, x') ≥ φ(a, x)
+
+A recurrent state equilibrium is guaranteed to exist at any maximizer of φ.
+"""
+abstract type AbstractStatePotentialGame{T} <: AbstractPotentialGame{T} end
+
+is_state_potential(::AbstractStatePotentialGame) = true
+is_state_potential(::AbstractGameProblem)        = false
+
+"""
+    AbstractOrdinalPotentialGame{T} <: AbstractDeterministicGame{T}
+
+Ordinal state-based potential game (Marden 2012, Section 3.3). A relaxation of
+`AbstractStatePotentialGame` where the potential function only needs to *preserve
+the sign* of unilateral utility changes:
+
+    Uᵢ(a'ᵢ, a₋ᵢ, x) − Uᵢ(a, x) > 0  ⟹  φ(a'ᵢ, a₋ᵢ, x) − φ(a, x) > 0
+
+A recurrent state equilibrium is guaranteed to exist (Lemma 3.1 in Marden 2012).
+Note: this is strictly more general than `AbstractStatePotentialGame`; exact
+potential games satisfy the ordinal condition but not vice-versa.
+"""
+abstract type AbstractOrdinalPotentialGame{T} <: AbstractDeterministicGame{T} end
+
+is_ordinal_potential(::AbstractOrdinalPotentialGame) = true
+is_ordinal_potential(::AbstractGameProblem)          = false
+
+"""
+    AbstractLexicographicGame{T} <: AbstractOrdinalPotentialGame{T}
+
+Lexicographic general sum game (Miller & Mitra 2022, Def 1). Each agent i has a
+two-component cost function Jᵢ: Z → ℝ² ordered lexicographically (≼):
+
+    Jᵢ(z) = (Jᵢᶜᵒˡ(z), Jᵢᵖᵉʳ(z))
+
+where Jᵢᶜᵒˡ is a shared pairwise collision cost and Jᵢᵖᵉʳ is an individual personal
+cost. Any LG is an ordinal potential game (Proposition 1, Miller & Mitra 2022) with
+ordinal potential P(z) = ⟨½ Σⱼ Jⱼᶜᵒˡ(z), Σⱼ gⱼ(zⱼ)⟩.
+"""
+abstract type AbstractLexicographicGame{T} <: AbstractOrdinalPotentialGame{T} end
+
+is_lexicographic(::AbstractLexicographicGame) = true
+is_lexicographic(::AbstractGameProblem)       = false
+
+"""
+    AbstractConvexGame{T} <: AbstractDeterministicGame{T}
+
+An N-player deterministic game in which:
+  (i)  Each player i's objective Jᵢ(xᵢ; x₋ᵢ) is convex in xᵢ for every fixed x₋ᵢ.
+  (ii) Every player's feasible set (private and shared constraints) is convex.
+
+These two conditions together guarantee:
+- **Existence** of a Nash equilibrium via Kakutani's fixed-point theorem.
+- A **variational inequality** (VI) reformulation: x* is a NE iff
+      F(x*)ᵀ(x − x*) ≥ 0  for all x ∈ X,
+  where F(x) = (∇ₓ₁J₁(x), …, ∇ₓₙJₙ(x)) is the pseudo-gradient.
+- **Uniqueness** of the NE when `is_strictly_convex_game` holds
+  (Rosen 1965, diagonal strict convexity).
+
+Note: convexity and potential-game structure are independent — a game may have
+both, either, or neither property.
+
+# References
+Rosen, J.B. (1965). Existence and uniqueness of equilibrium points for concave
+N-person games. *Econometrica* 33(3), 520–534.
+"""
+abstract type AbstractConvexGame{T} <: AbstractDeterministicGame{T} end
+
+is_convex_game(::AbstractConvexGame)          = true
+is_convex_game(::AbstractGameProblem)         = false
+is_strictly_convex_game(::AbstractGameProblem) = false
 
 # ============================================================================
 # Interface — required methods on AbstractGameProblem

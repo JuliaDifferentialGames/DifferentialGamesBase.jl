@@ -68,6 +68,8 @@ include("solutions/gnep_solutions.jl")
 include("solve.jl")
 include("problems/IGNEP.jl")
 include("solutions/ignep_solutions.jl")
+include("problems/RHN.jl")
+include("solutions/rhn_solutions.jl")
 
 # ============================================================================
 # Exports — Abstract Game Hierarchy
@@ -79,6 +81,10 @@ export
     AbstractPartiallyObservableGame,
     AbstractInverseGameProblem,
     AbstractPotentialGame,
+    AbstractStatePotentialGame,
+    AbstractOrdinalPotentialGame,
+    AbstractLexicographicGame,
+    AbstractConvexGame,
     is_deterministic,
     is_stochastic,
     is_partially_observable,
@@ -284,7 +290,11 @@ export
     PDGNEProblem,
     LQGameProblem,
     LTVLQGameProblem,
-    validate_game_problem
+    validate_game_problem,
+    StatePotentialGameProblem,
+    OrdinalPotentialGameProblem,
+    LexicographicGameProblem,
+    ConvexGameProblem
 
 # ============================================================================
 # Exports — Property Queries
@@ -293,6 +303,11 @@ export
     has_separable_dynamics,
     is_lq_game,
     is_potential_game,
+    is_state_potential,
+    is_ordinal_potential,
+    is_lexicographic,
+    is_convex_game,
+    is_strictly_convex_game,
     has_shared_constraints,
     is_unconstrained,
     is_pd_gnep,
@@ -376,9 +391,29 @@ export
     DiagonalLQTerminalCost
 
 # ============================================================================
+# Exports — Lexicographic game helpers
+# ============================================================================
+export
+    collision_cost,
+    personal_cost,
+    lexicographic_cost,
+    ordinal_potential
+
+# ============================================================================
 # Exports — GNEPSolution helpers
 # ============================================================================
 export first_step_state
+
+# ============================================================================
+# Exports — Receding Horizon Nash (RHN)
+# ============================================================================
+export
+    RecedingHorizonNashProblem,
+    with_initial_state,
+    RecedingHorizonNashSolution,
+    get_state_trajectory,
+    get_control_trajectory,
+    get_total_cost
 
 # ============================================================================
 # Exports — Inverse Game (IGNEP)
@@ -407,6 +442,13 @@ export
     as_forward_problem,
     InverseGameSolution,
     get_weights,
-    get_weight_history
+    get_weight_history,
+    # InverseLQGame
+    InverseLQGame,
+    has_exact_K,
+    has_trajectory_data,
+    InverseLQGameSolution,
+    get_kernel,
+    extract_cost_matrices
 
 end

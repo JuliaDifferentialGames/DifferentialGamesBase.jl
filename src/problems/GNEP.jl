@@ -517,12 +517,49 @@ end
 
 Construct a Partially-Decoupled Generalized Nash Equilibrium Problem (PD-GNEP).
 
-Each player has independent state and dynamics; players interact only through costs and
-optional shared constraints. The joint state is the concatenation of all player states.
+# Formal Definition
+The PD-GNEP is the tuple
+
+    𝔾 = (T, {Υⁱ}ᵢ, {Jⁱ}ᵢ, {fⁱ}ᵢ, {C(𝒳, Υ)}ᵢ)
+
+where each player i ∈ {1, …, N} solves
+
+    min_{𝒳ⁱ, Υⁱ}  Jⁱ(𝒳, Υ)
+    subject to     Dⁱ(𝒳ⁱ, Υⁱ) = 0    [separable dynamics, private]
+                   C(𝒳, Υ)    ≤ 0    [shared constraints, equality or inequality]
+
+The "partial decoupling" refers to the dynamics: fⁱ depends only on player i's
+own state 𝒳ⁱ and control Υⁱ. The objectives Jⁱ and shared constraints C(𝒳, Υ)
+may depend on the full joint state 𝒳 and the full joint control Υ = (Υ¹, …, Υᴺ).
+
+In the GNEP framing each player i optimises over Υⁱ while treating Υ⁻ⁱ as
+fixed — the definition writes C(𝒳, Υ⁻ⁱ) to emphasise this, but the constraint
+function itself is C(𝒳, Υ) and may depend on all controls.
+
+# Argument-to-definition mapping
+| Argument                    | Definition component                     |
+|-----------------------------|------------------------------------------|
+| `tf`, `dt`                  | T — time horizon                         |
+| `players[i].dynamics`       | fⁱ — separable player dynamics           |
+| `players[i].objective`      | Jⁱ — per-player cost functional          |
+| `players[i].constraints`    | Υⁱ — strategy space (bounds, etc.)       |
+| `shared_constraints`        | C(𝒳, Υ) — shared equality/inequality    |
+
+The dynamics Dⁱ(𝒳ⁱ, Υⁱ) = 0 are enforced via forward simulation (shooting
+method) rather than as explicit equality constraints, which is equivalent for
+trajectory optimisation but differs from direct transcription formulations.
+
+# Solution concept
+A strategy profile Υ* is an *open-loop Nash equilibrium* if for every player i
+and every feasible alternative strategy Υⁱ:
+
+    Jⁱ(𝒳*, Υ*) ≤ Jⁱ(𝒳(Υⁱ, Υ⁻ⁱ*), {Υⁱ, Υ⁻ⁱ*})
 
 # Arguments
-- `players`: `Vector{PlayerSpec{T}}` — one entry per player
-- `shared_constraints`: inter-player constraints (omit or pass `[]` for none)
+- `players`: `Vector{PlayerSpec{T}}` — one entry per player; bundles fⁱ, Jⁱ,
+  initial state x₀ⁱ, and private strategy-space constraints Υⁱ
+- `shared_constraints`: constraints C(𝒳, Υ) ≤ 0 (or = 0) evaluated on the
+  full joint state and control; may be equality or inequality
 - `tf`: final time
 - `dt`: time step
 """
@@ -626,4 +663,479 @@ function Base.show(io::IO, ::MIME"text/plain", g::GameProblem{T}) where {T}
     println(io, "    PD-GNEP       : ", is_pd_gnep(g))
     println(io, "    Potential     : ", is_potential_game(g))
     println(io, "    Unconstrained : ", is_unconstrained(g))
+end
+
+# ============================================================================
+# StatePotentialGameProblem — state-based potential game (Marden 2012, Def 3.2)
+# ============================================================================
+
+"""
+    StatePotentialGameProblem{T, S} <: AbstractStatePotentialGame{T}
+
+State-based potential game with a finite state space X and Markovian transition.
+
+# Fields
+- `n_players`: number of agents N = {1, …, n}
+- `state_space`: finite state space X represented as a `Vector{S}`
+- `action_spaces`: per-player action sets; `action_spaces[i]` is Aᵢ
+- `utility_functions`: `utility_functions[i](a, x)` returns Uᵢ(a, x) ∈ ℝ,
+  where `a` is the joint action tuple/vector and `x ∈ state_space`
+- `transition`: `transition(a, x)` returns either a state `x' ∈ state_space`
+  (deterministic) or a `Dict{S, Float64}` probability distribution over X
+- `potential`: `potential(a, x)` returns φ(a, x) ∈ ℝ, the exact potential
+  satisfying conditions (i) and (ii) of Marden (2012) Def 3.2
+
+# References
+Marden, J.R. (2012). State based potential games. *Automatica* 48(12), 3075–3088.
+"""
+struct StatePotentialGameProblem{T, S} <: AbstractStatePotentialGame{T}
+    n_players::Int
+    state_space::Vector{S}
+    action_spaces::Vector{<:AbstractVector}
+    utility_functions::Vector{Function}
+    transition::Function
+    potential::Function
+end
+
+n_players(g::StatePotentialGameProblem) = g.n_players
+
+"""
+    StatePotentialGameProblem(state_space, action_spaces, utility_functions,
+                              transition, potential; T=Float64)
+
+Construct a state-based potential game (Marden 2012, Def 3.2).
+
+# Arguments
+- `state_space`: finite set X as a `Vector`; states can be any type `S`
+- `action_spaces`: `Vector` of per-player action sets, one per player
+- `utility_functions`: `Vector` of utility functions; `utility_functions[i](a, x)`
+  where `a` is the joint action and `x ∈ state_space`
+- `transition`: `(a, x) -> x'` or `(a, x) -> Dict(x' => prob, ...)`
+- `potential`: `(a, x) -> φ` satisfying Def 3.2 of Marden (2012)
+- `T`: numeric type (default `Float64`)
+"""
+function StatePotentialGameProblem(
+    state_space::Vector{S},
+    action_spaces::Vector{<:AbstractVector},
+    utility_functions::Vector{Function},
+    transition::Function,
+    potential::Function;
+    T::Type = Float64
+) where {S}
+    n = length(action_spaces)
+    @assert length(utility_functions) == n "Need one utility function per player"
+    @assert !isempty(state_space)           "State space must be non-empty"
+    StatePotentialGameProblem{T, S}(n, state_space, action_spaces,
+                                    utility_functions, transition, potential)
+end
+
+function Base.show(io::IO, g::StatePotentialGameProblem{T}) where {T}
+    print(io, "StatePotentialGameProblem{$T} with $(g.n_players) players, ",
+          "|X|=$(length(g.state_space))")
+end
+
+function Base.show(io::IO, ::MIME"text/plain", g::StatePotentialGameProblem{T}) where {T}
+    println(io, "StatePotentialGameProblem{$T}")
+    println(io, "  Players      : ", g.n_players)
+    println(io, "  |X|          : ", length(g.state_space))
+    println(io, "  |Aᵢ|         : ", join(length.(g.action_spaces), ", "))
+end
+
+# ============================================================================
+# OrdinalPotentialGameProblem — ordinal state-based potential game (Marden 2012)
+# ============================================================================
+
+"""
+    OrdinalPotentialGameProblem{T, S} <: AbstractOrdinalPotentialGame{T}
+
+Ordinal state-based potential game with a finite state space X.
+
+Unlike `StatePotentialGameProblem`, the potential only needs to satisfy the
+*ordinal* (sign-preserving) condition, not the exact-equality condition.
+A recurrent state equilibrium is guaranteed to exist by Lemma 3.1 of Marden (2012).
+
+# Fields
+- `n_players`: number of agents
+- `state_space`: finite state space X
+- `action_spaces`: per-player action sets {Aᵢ}
+- `utility_functions`: `utility_functions[i](a, x)` returns Uᵢ(a, x) ∈ ℝ
+- `transition`: `(a, x) -> x'` or `(a, x) -> Dict(x' => prob, ...)`
+- `ordinal_potential`: `(a, x) -> P(a, x)` ∈ ℝ, ordinal potential satisfying
+  Uᵢ(a'ᵢ, a₋ᵢ, x) − Uᵢ(a, x) > 0  ⟹  P(a'ᵢ, a₋ᵢ, x) − P(a, x) > 0
+
+# References
+Marden, J.R. (2012). State based potential games. *Automatica* 48(12), 3075–3088.
+"""
+struct OrdinalPotentialGameProblem{T, S} <: AbstractOrdinalPotentialGame{T}
+    n_players::Int
+    state_space::Vector{S}
+    action_spaces::Vector{<:AbstractVector}
+    utility_functions::Vector{Function}
+    transition::Function
+    ordinal_potential::Function
+end
+
+n_players(g::OrdinalPotentialGameProblem) = g.n_players
+
+"""
+    OrdinalPotentialGameProblem(state_space, action_spaces, utility_functions,
+                                transition, ordinal_potential; T=Float64)
+
+Construct an ordinal state-based potential game (Marden 2012, Section 3.3).
+
+Same interface as `StatePotentialGameProblem`; `ordinal_potential` only needs to
+preserve the sign of unilateral utility differences, not match their magnitude.
+"""
+function OrdinalPotentialGameProblem(
+    state_space::Vector{S},
+    action_spaces::Vector{<:AbstractVector},
+    utility_functions::Vector{Function},
+    transition::Function,
+    ordinal_potential::Function;
+    T::Type = Float64
+) where {S}
+    n = length(action_spaces)
+    @assert length(utility_functions) == n "Need one utility function per player"
+    @assert !isempty(state_space)           "State space must be non-empty"
+    OrdinalPotentialGameProblem{T, S}(n, state_space, action_spaces,
+                                      utility_functions, transition, ordinal_potential)
+end
+
+function Base.show(io::IO, g::OrdinalPotentialGameProblem{T}) where {T}
+    print(io, "OrdinalPotentialGameProblem{$T} with $(g.n_players) players, ",
+          "|X|=$(length(g.state_space))")
+end
+
+function Base.show(io::IO, ::MIME"text/plain", g::OrdinalPotentialGameProblem{T}) where {T}
+    println(io, "OrdinalPotentialGameProblem{$T}")
+    println(io, "  Players      : ", g.n_players)
+    println(io, "  |X|          : ", length(g.state_space))
+    println(io, "  |Aᵢ|         : ", join(length.(g.action_spaces), ", "))
+end
+
+# ============================================================================
+# LexicographicGameProblem — lexicographic general sum game (Miller & Mitra 2022)
+# ============================================================================
+
+"""
+    LexicographicGameProblem{T} <: AbstractLexicographicGame{T}
+
+Lexicographic general sum game (LG). Each agent i has a two-part cost
+
+    Jᵢ(z) = (Jᵢᶜᵒˡ(z), Jᵢᵖᵉʳ(z))  ∈  ℝ²
+
+ordered lexicographically (≼): minimize collision first, personal cost second.
+
+    Jᵢᶜᵒˡ(z) = Σⱼ≠ᵢ fᵢⱼ(zᵢ, zⱼ)            (pairwise collision cost, ≥ 0)
+    Jᵢᵖᵉʳ(z) = gᵢ(zᵢ) − Σⱼ≠ᵢ gⱼ(zⱼ)        (personal cost with zero-sum term)
+
+Any LG is an ordinal potential game with potential P(z) = ⟨½ Σⱼ Jⱼᶜᵒˡ(z), Σⱼ gⱼ(zⱼ)⟩
+(Proposition 1, Miller & Mitra 2022), guaranteeing a pure-strategy Nash equilibrium.
+
+# Fields
+- `n_players`: number of agents N = {1, …, n}
+- `forward_game`: underlying `GameProblem{T}` providing dynamics, time horizon,
+  initial states, and structural constraints (built via `PDGNEProblem`)
+- `collision_cost_pairs`: `n×n` matrix of pairwise cost functions;
+  `collision_cost_pairs[i,j](z_i, z_j)` evaluates fᵢⱼ(zᵢ, zⱼ) ≥ 0;
+  must be symmetric (fᵢⱼ = fⱼᵢ); diagonal entries are unused
+- `personal_costs`: `personal_costs[i](z_i)` evaluates gᵢ(zᵢ) for player i;
+  `z_i` is the trajectory of player i (e.g. a `Vector` of state vectors)
+
+# References
+Miller, K. & Mitra, S. (2022). Multi-agent motion planning using differential games
+with lexicographic preferences. *IEEE CDC*, pp. 5751–5757.
+"""
+struct LexicographicGameProblem{T} <: AbstractLexicographicGame{T}
+    n_players::Int
+    forward_game::GameProblem{T}
+    collision_cost_pairs::Matrix{Function}
+    personal_costs::Vector{Function}
+end
+
+n_players(g::LexicographicGameProblem)       = g.n_players
+state_dim(g::LexicographicGameProblem)        = state_dim(g.forward_game)
+state_dim(g::LexicographicGameProblem, i)     = state_dim(g.forward_game, i)
+control_dim(g::LexicographicGameProblem)      = control_dim(g.forward_game)
+control_dim(g::LexicographicGameProblem, i)   = control_dim(g.forward_game, i)
+n_steps(g::LexicographicGameProblem)          = n_steps(g.forward_game)
+
+"""
+    collision_cost(g, i, z_i, z_minus_i) -> T
+
+Player i's collision cost Jᵢᶜᵒˡ(z) = Σⱼ≠ᵢ fᵢⱼ(zᵢ, zⱼ).
+`z_minus_i[k]` is the trajectory of the k-th opponent (in ascending player-index order,
+skipping i).
+"""
+function collision_cost(g::LexicographicGameProblem{T},
+                        i::Int, z_i, z_minus_i) where {T}
+    val = zero(T)
+    k = 1
+    for j in 1:g.n_players
+        j == i && continue
+        val += g.collision_cost_pairs[i, j](z_i, z_minus_i[k])
+        k += 1
+    end
+    return val
+end
+
+"""
+    personal_cost(g, i, z_i, z_minus_i) -> T
+
+Player i's personal cost Jᵢᵖᵉʳ(z) = gᵢ(zᵢ) − Σⱼ≠ᵢ gⱼ(zⱼ).
+The subtracted terms make the personal component zero-sum across agents.
+"""
+function personal_cost(g::LexicographicGameProblem{T},
+                       i::Int, z_i, z_minus_i) where {T}
+    val = g.personal_costs[i](z_i)
+    k = 1
+    for j in 1:g.n_players
+        j == i && continue
+        val -= g.personal_costs[j](z_minus_i[k])
+        k += 1
+    end
+    return val
+end
+
+"""
+    lexicographic_cost(g, i, z_i, z_minus_i) -> Tuple{T, T}
+
+Full lexicographic cost (Jᵢᶜᵒˡ, Jᵢᵖᵉʳ) for player i.
+"""
+function lexicographic_cost(g::LexicographicGameProblem{T},
+                             i::Int, z_i, z_minus_i) where {T}
+    return (collision_cost(g, i, z_i, z_minus_i),
+            personal_cost(g,  i, z_i, z_minus_i))
+end
+
+"""
+    ordinal_potential(g, z_by_player) -> Tuple{T, T}
+
+Evaluate the ordinal potential P(z) = ⟨½ Σⱼ Jⱼᶜᵒˡ(z), Σⱼ gⱼ(zⱼ)⟩.
+`z_by_player[i]` is the trajectory for player i.
+"""
+function ordinal_potential(g::LexicographicGameProblem{T},
+                           z_by_player::AbstractVector) where {T}
+    @assert length(z_by_player) == g.n_players
+    col = zero(T)
+    per = zero(T)
+    for i in 1:g.n_players
+        z_i  = z_by_player[i]
+        z_mi = [z_by_player[j] for j in 1:g.n_players if j != i]
+        col += collision_cost(g, i, z_i, z_mi)
+        per += g.personal_costs[i](z_i)
+    end
+    return (col / 2, per)
+end
+
+"""
+    LexicographicGameProblem(players, collision_cost_pairs, personal_costs,
+                             shared_constraints, tf, dt)
+    LexicographicGameProblem(players, collision_cost_pairs, personal_costs, tf, dt)
+
+Construct a lexicographic general sum game (Miller & Mitra 2022, Def 1).
+
+# Arguments
+- `players`: `Vector{PlayerSpec{T}}` — one per agent (dynamics, initial state, objective)
+- `collision_cost_pairs`: `n×n` `Matrix{Function}`; `[i,j](z_i, z_j)` is fᵢⱼ ≥ 0,
+  symmetric (fᵢⱼ = fⱼᵢ); diagonal entries are ignored
+- `personal_costs`: `Vector{Function}`; `personal_costs[i](z_i)` is gᵢ(zᵢ)
+- `shared_constraints`: inter-player constraints (optional, default `[]`)
+- `tf`, `dt`: final time and time step
+"""
+function LexicographicGameProblem(
+    players::Vector{PlayerSpec{T}},
+    collision_cost_pairs::Matrix{Function},
+    personal_costs::Vector{Function},
+    shared_constraints::AbstractVector,
+    tf::T, dt::T
+) where {T}
+    n = length(players)
+    @assert size(collision_cost_pairs) == (n, n) "collision_cost_pairs must be $n×$n"
+    @assert length(personal_costs) == n          "Need one personal cost per player"
+    forward = PDGNEProblem(players, shared_constraints, tf, dt)
+    return LexicographicGameProblem{T}(n, forward, collision_cost_pairs, personal_costs)
+end
+
+LexicographicGameProblem(
+    players::Vector{PlayerSpec{T}},
+    collision_cost_pairs::Matrix{Function},
+    personal_costs::Vector{Function},
+    tf::T, dt::T
+) where {T} = LexicographicGameProblem(players, collision_cost_pairs, personal_costs,
+                                        AbstractSharedConstraint[], tf, dt)
+
+function Base.show(io::IO, g::LexicographicGameProblem{T}) where {T}
+    print(io, "LexicographicGameProblem{$T} with $(g.n_players) players [Ordinal Potential]")
+end
+
+function Base.show(io::IO, ::MIME"text/plain", g::LexicographicGameProblem{T}) where {T}
+    println(io, "LexicographicGameProblem{$T}")
+    println(io, "  Players       : ", g.n_players)
+    println(io, "  State dim     : ", state_dim(g))
+    println(io, "  Control dim   : ", control_dim(g))
+    println(io, "  Time horizon  : ", g.forward_game.time_horizon)
+    println(io, "  Properties:")
+    println(io, "    Ordinal pot.: true (Proposition 1, Miller & Mitra 2022)")
+    println(io, "    Pure NE     : guaranteed (Proposition 2)")
+end
+
+# ============================================================================
+# ConvexGameProblem — general convex game (Rosen 1965)
+# ============================================================================
+
+"""
+    ConvexGameProblem{T} <: AbstractConvexGame{T}
+
+General convex N-player game: all player objectives are convex in own decisions
+and all constraint sets (private and shared) are convex.
+
+# Convexity verification
+- **LQ objectives** (`LQStageCost` + `LQTerminalCost`): verified automatically.
+  Their constructors already enforce R ≻ 0, Q ≽ 0, Qf ≽ 0, which suffices for
+  convexity in the control when dynamics are linear.
+- **Constraints**: verified automatically by checking `is_convex(c)` on every
+  constraint. `ControlBounds` and `StateBounds` are marked convex; all others
+  default to `false` and require `assume_convex=true`.
+- **Nonlinear objectives or non-convex-tagged constraints**: require the caller
+  to pass `assume_convex=true` to suppress the check.
+
+# Fields
+- `n_players`: number of players
+- `forward_game`: underlying `GameProblem{T}` (dynamics, objectives, constraints)
+- `is_strictly_convex`: `true` if the pseudo-gradient F = (∇ₓᵢJᵢ)ᵢ satisfies
+  Rosen's diagonal strict convexity condition, guaranteeing a *unique* NE
+
+# Equilibrium guarantees
+- **Existence**: always guaranteed (objectives convex + closed convex sets)
+- **Uniqueness**: guaranteed when `is_strictly_convex == true` (Rosen 1965, Thm 2)
+
+# References
+Rosen, J.B. (1965). Existence and uniqueness of equilibrium points for concave
+N-person games. *Econometrica* 33(3), 520–534.
+"""
+struct ConvexGameProblem{T} <: AbstractConvexGame{T}
+    n_players::Int
+    forward_game::GameProblem{T}
+    is_strictly_convex::Bool
+end
+
+n_players(g::ConvexGameProblem)              = g.n_players
+state_dim(g::ConvexGameProblem)              = state_dim(g.forward_game)
+state_dim(g::ConvexGameProblem, i::Int)      = state_dim(g.forward_game, i)
+control_dim(g::ConvexGameProblem)            = control_dim(g.forward_game)
+control_dim(g::ConvexGameProblem, i::Int)    = control_dim(g.forward_game, i)
+n_steps(g::ConvexGameProblem)               = n_steps(g.forward_game)
+is_strictly_convex_game(g::ConvexGameProblem) = g.is_strictly_convex
+
+# ─── Internal convexity check ─────────────────────────────────────────────────
+
+# Returns nothing if the game is verifiably convex, throws with a descriptive
+# message if any component cannot be verified.
+function _verify_convexity(game::GameProblem)
+    for obj in game.objectives
+        id = obj.player_id
+        if !(obj.stage_cost isa LQStageCost)
+            error(
+                "Player $id has a $(typeof(obj.stage_cost)) stage cost; " *
+                "convexity cannot be verified automatically. " *
+                "Pass `assume_convex=true` to assert it."
+            )
+        end
+        if !(obj.terminal_cost isa LQTerminalCost)
+            error(
+                "Player $id has a $(typeof(obj.terminal_cost)) terminal cost; " *
+                "convexity cannot be verified automatically. " *
+                "Pass `assume_convex=true` to assert it."
+            )
+        end
+    end
+    for c in game.private_constraints
+        is_convex(c) || error(
+            "Private constraint $(typeof(c)) is not marked convex " *
+            "(`is_convex` returns false). Pass `assume_convex=true` to assert it."
+        )
+    end
+    for c in game.shared_constraints
+        is_convex(c) || error(
+            "Shared constraint $(typeof(c)) is not marked convex " *
+            "(`is_convex` returns false). Pass `assume_convex=true` to assert it."
+        )
+    end
+    return nothing
+end
+
+# ─── Constructors ─────────────────────────────────────────────────────────────
+
+"""
+    ConvexGameProblem(game; strict=false, assume_convex=false)
+
+Wrap an existing `GameProblem{T}` as a convex game.
+
+Automatically verifies convexity for LQ objectives and `is_convex`-tagged
+constraints. Pass `assume_convex=true` to skip the check for nonlinear problems.
+Set `strict=true` to assert Rosen's diagonal strict convexity (unique NE).
+"""
+function ConvexGameProblem(
+    game::GameProblem{T};
+    strict::Bool        = false,
+    assume_convex::Bool = false
+) where {T}
+    assume_convex || _verify_convexity(game)
+    return ConvexGameProblem{T}(n_players(game), game, strict)
+end
+
+"""
+    ConvexGameProblem(players, shared_constraints, tf, dt; strict=false, assume_convex=false)
+    ConvexGameProblem(players, tf, dt; strict=false, assume_convex=false)
+
+Construct a convex game from `PlayerSpec` entries, building a `PDGNEProblem` internally.
+
+# Arguments
+- `players`: `Vector{PlayerSpec{T}}` — one per player
+- `shared_constraints`: inter-player constraints (optional, default `[]`)
+- `tf`, `dt`: final time and time step
+- `strict`: assert diagonal strict convexity → unique NE (Rosen 1965, Thm 2)
+- `assume_convex`: skip convexity check (required for nonlinear objectives)
+"""
+function ConvexGameProblem(
+    players::Vector{PlayerSpec{T}},
+    shared_constraints::AbstractVector,
+    tf::T, dt::T;
+    strict::Bool        = false,
+    assume_convex::Bool = false
+) where {T}
+    forward = PDGNEProblem(players, shared_constraints, tf, dt)
+    return ConvexGameProblem(forward; strict=strict, assume_convex=assume_convex)
+end
+
+ConvexGameProblem(
+    players::Vector{PlayerSpec{T}},
+    tf::T, dt::T;
+    strict::Bool        = false,
+    assume_convex::Bool = false
+) where {T} = ConvexGameProblem(players, AbstractSharedConstraint[], tf, dt;
+                                 strict=strict, assume_convex=assume_convex)
+
+# ─── Display ──────────────────────────────────────────────────────────────────
+
+function Base.show(io::IO, g::ConvexGameProblem{T}) where {T}
+    tag = g.is_strictly_convex ? "Strictly Convex" : "Convex"
+    print(io, "ConvexGameProblem{$T} with $(g.n_players) players [$tag]")
+end
+
+function Base.show(io::IO, ::MIME"text/plain", g::ConvexGameProblem{T}) where {T}
+    println(io, "ConvexGameProblem{$T}")
+    println(io, "  Players         : ", g.n_players)
+    println(io, "  State dim       : ", state_dim(g))
+    println(io, "  Control dim     : ", control_dim(g))
+    println(io, "  Dynamics        : ", g.forward_game.dynamics)
+    println(io, "  Time horizon    : ", g.forward_game.time_horizon)
+    println(io, "  Private constr. : ", length(g.forward_game.private_constraints))
+    println(io, "  Shared constr.  : ", length(g.forward_game.shared_constraints))
+    println(io, "  Properties:")
+    println(io, "    Strictly cvx  : ", g.is_strictly_convex)
+    println(io, "    NE existence  : guaranteed (Kakutani)")
+    println(io, "    NE uniqueness : ", g.is_strictly_convex ?
+                "guaranteed (Rosen 1965, Thm 2)" : "not guaranteed")
 end

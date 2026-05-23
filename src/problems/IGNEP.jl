@@ -429,3 +429,168 @@ InversePDGNEProblem(
     tf, dt
 )
 
+# ============================================================================
+# InverseLQGame — Algebraic Inverse LQ Differential Game
+# ============================================================================
+
+"""
+    InverseLQGame{T} <: AbstractInverseGameProblem{T}
+
+Specification of an inverse infinite-horizon linear-quadratic (LQ) game.
+
+Given system dynamics
+    ẋ(t) = Ax(t) + Σᵢ Bᵢuᵢ(t)
+and a Nash equilibrium characterised by linear feedback laws uᵢ(t) = −Kᵢx(t),
+find **all** cost-function parameter vectors
+    θᵢ = [vec(Qᵢ)ᵀ  vec(Rᵢ₁)ᵀ  ⋯  vec(RᵢN)ᵀ]ᵀ
+consistent with that equilibrium (Theorem 2, Inga et al. 2019).
+
+# Fields
+- `n_players` : N — number of players
+- `A`          : joint state matrix (n × n)
+- `B`          : per-player input matrices; `B[i]` is n × pᵢ
+- `K_star`     : Nash feedback matrices (pᵢ × n each), or `nothing` when
+                 trajectories must be used for estimation
+- `state_trajectories`   : observed joint-state trajectory (n × K_samples),
+                           or `nothing` when `K_star` is given directly
+- `control_trajectories` : observed control trajectories; `control_trajectories[i]`
+                           is pᵢ × K_samples, or `nothing`
+- `sample_times`         : time stamps for trajectory samples, or `nothing`
+- `state_dim`    : n (cached for convenience)
+- `control_dims` : [p₁, …, pN] (cached for convenience)
+
+# Constructors
+    InverseLQGame(A, B, K_star)                              # exact K* given
+    InverseLQGame(A, B, X_traj, U_traj; times=nothing)       # trajectory mode
+
+# References
+Inga, J., Bischoff, E., Molloy, T.L., Flad, M., Hohmann, S. (2019).
+Solution sets for inverse non-cooperative linear-quadratic differential games.
+*IEEE Control Systems Letters*, 3(4), 871–876. DOI: 10.1109/LCSYS.2019.2919271
+"""
+struct InverseLQGame{T} <: AbstractInverseGameProblem{T}
+    n_players           ::Int
+    A                   ::Matrix{T}
+    B                   ::Vector{Matrix{T}}
+    K_star              ::Union{Nothing, Vector{Matrix{T}}}
+    state_trajectories  ::Union{Nothing, Matrix{T}}
+    control_trajectories::Union{Nothing, Vector{Matrix{T}}}
+    sample_times        ::Union{Nothing, Vector{T}}
+    state_dim           ::Int
+    control_dims        ::Vector{Int}
+
+    function InverseLQGame{T}(
+        n_players           ::Int,
+        A                   ::Matrix{T},
+        B                   ::Vector{Matrix{T}},
+        K_star              ::Union{Nothing, Vector{Matrix{T}}},
+        state_trajectories  ::Union{Nothing, Matrix{T}},
+        control_trajectories::Union{Nothing, Vector{Matrix{T}}},
+        sample_times        ::Union{Nothing, Vector{T}}
+    ) where {T}
+        n = size(A, 1)
+        @assert size(A, 2) == n                 "A must be square (n×n)"
+        @assert n_players == length(B)          "Must have one B matrix per player"
+        @assert all(size(Bi, 1) == n for Bi in B) "Each Bᵢ must have n rows"
+
+        control_dims = [size(Bi, 2) for Bi in B]
+
+        if K_star !== nothing
+            @assert length(K_star) == n_players "K_star must have one matrix per player"
+            for i in 1:n_players
+                @assert(size(K_star[i]) == (control_dims[i], n),
+                    "K_star[$i] must be $(control_dims[i])×$n")
+            end
+        end
+
+        if state_trajectories !== nothing
+            @assert size(state_trajectories, 1) == n "state_trajectories must have n rows"
+        end
+        if control_trajectories !== nothing
+            @assert(length(control_trajectories) == n_players,
+                "Must have one control trajectory per player")
+        end
+
+        new{T}(n_players, A, B, K_star,
+               state_trajectories, control_trajectories, sample_times,
+               n, control_dims)
+    end
+end
+
+# ─── Constructors ─────────────────────────────────────────────────────────────
+
+"""
+    InverseLQGame(A, B, K_star) -> InverseLQGame{T}
+
+Construct an inverse LQ game with **exactly known** Nash feedback matrices K*.
+
+# Arguments
+- `A`      : n×n state matrix
+- `B`      : `Vector{Matrix{T}}` — `B[i]` is n×pᵢ
+- `K_star` : `Vector{Matrix{T}}` — `K_star[i]` is pᵢ×n (feedback gain for player i)
+"""
+function InverseLQGame(
+    A      ::Matrix{T},
+    B      ::Vector{Matrix{T}},
+    K_star ::Vector{Matrix{T}}
+) where {T}
+    InverseLQGame{T}(length(B), A, B, K_star, nothing, nothing, nothing)
+end
+
+"""
+    InverseLQGame(A, B, X_traj, U_traj; times=nothing) -> InverseLQGame{T}
+
+Construct an inverse LQ game from **observed trajectories**.
+The Nash feedback matrices K* will be estimated inside the solver via
+least-squares (eq. 22 of Inga et al. 2019).
+
+# Arguments
+- `A`       : n×n state matrix
+- `B`       : `Vector{Matrix{T}}` — `B[i]` is n×pᵢ
+- `X_traj`  : n × K_samples matrix of observed joint states
+- `U_traj`  : `Vector{Matrix{T}}` — `U_traj[i]` is pᵢ × K_samples observed controls
+- `times`   : optional K_samples-vector of time stamps
+"""
+function InverseLQGame(
+    A      ::Matrix{T},
+    B      ::Vector{Matrix{T}},
+    X_traj ::Matrix{T},
+    U_traj ::Vector{Matrix{T}};
+    times  ::Union{Nothing, Vector{T}} = nothing
+) where {T}
+    InverseLQGame{T}(length(B), A, B, nothing, X_traj, U_traj, times)
+end
+
+# ─── Accessors / display ──────────────────────────────────────────────────────
+
+n_players(g::InverseLQGame) = g.n_players
+
+"""
+    has_exact_K(prob::InverseLQGame) -> Bool
+
+`true` when Nash feedback matrices are given directly; `false` in trajectory mode.
+"""
+has_exact_K(prob::InverseLQGame) = prob.K_star !== nothing
+
+"""
+    has_trajectory_data(prob::InverseLQGame) -> Bool
+
+`true` when observed trajectory data is available for K* estimation.
+"""
+has_trajectory_data(prob::InverseLQGame) =
+    prob.state_trajectories !== nothing && prob.control_trajectories !== nothing
+
+function Base.show(io::IO, g::InverseLQGame{T}) where {T}
+    mode = has_exact_K(g) ? "exact K*" : "trajectory mode"
+    print(io, "InverseLQGame{$T} with $(g.n_players) players [$mode, n=$(g.state_dim)]")
+end
+
+function Base.show(io::IO, ::MIME"text/plain", g::InverseLQGame{T}) where {T}
+    println(io, "InverseLQGame{$T}")
+    println(io, "  Players      : ", g.n_players)
+    println(io, "  State dim n  : ", g.state_dim)
+    println(io, "  Control dims : ", g.control_dims)
+    println(io, "  Mode         : ", has_exact_K(g) ? "exact K*" : "trajectory (K* estimated)")
+    println(io, "  Parameter L  : ", g.state_dim^2 + sum(p^2 for p in g.control_dims))
+end
+
