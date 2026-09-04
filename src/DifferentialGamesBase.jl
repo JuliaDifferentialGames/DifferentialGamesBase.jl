@@ -249,6 +249,7 @@ export
     is_equality,
     is_inequality,
     is_convex,
+    depends_on_control,
     get_player,
     get_players,
     evaluate_constraint,

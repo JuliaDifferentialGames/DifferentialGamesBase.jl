@@ -265,6 +265,23 @@ Override to `true` for any concrete type that is provably convex (e.g.,
 """
 is_convex(::AbstractConstraint) = false
 
+"""
+    depends_on_control(c::AbstractConstraint) -> Bool
+
+Whether `c`'s value/Jacobian can depend on the control `u`. A discrete transcription has
+`N+1` state nodes (`k=0,...,N`) but only `N` control intervals (`k=0,...,N-1`) — there is
+no control at the terminal state. Solvers that lower per-node `is_convex` private
+inequalities into hard rows (e.g. FALCON's `h_cvx` path) must only extend a constraint's
+node coverage to the terminal state `k=N` when it is provably state-only; a constraint that
+touches `u` has no well-defined evaluation there.
+
+Defaults to `true` (safe: assume control-dependent, so node coverage is UNCHANGED at
+`k=0,...,N-1` unless a constraint type explicitly asserts otherwise). Override to `false`
+only for constraints whose `evaluate_constraint`/`constraint_jacobian` provably never
+reference `u` (e.g. `StateBounds`).
+"""
+depends_on_control(::AbstractConstraint) = true
+
 # ============================================================================
 # Exterior penalty — cubic form q_c(z) = [z]^3_+, C^2 on R
 #

@@ -558,6 +558,17 @@ function _terminal_hessian(cost::AbstractTerminalCost, xi, soi::Int, n_xi::Int, 
     return Hxx
 end
 
+# NonlinearTerminalCost: honor a user-supplied analytical Hessian (n_xi×n_xi
+# slice) when present — e.g. a Gauss-Newton model. ForwardDiff fallback else.
+function _terminal_hessian(cost::NonlinearTerminalCost, xi, soi::Int, n_xi::Int, n::Int, p)
+    Hxi = cost.hessian === nothing ?
+        ForwardDiff.hessian(x_var -> evaluate_terminal_cost(cost, x_var, p), xi) :
+        cost.hessian(xi, p)
+    Hxx = zeros(eltype(xi), n, n)
+    Hxx[soi+1:soi+n_xi, soi+1:soi+n_xi] = Hxi
+    return Hxx
+end
+
 function _terminal_gradient(cost::LQTerminalCost, xi, soi::Int, n_xi::Int, n::Int, p)
     ∇xi = terminal_cost_gradient(cost, xi, p)
     ∇x  = zeros(eltype(xi), n)
@@ -567,6 +578,16 @@ end
 
 function _terminal_gradient(cost::AbstractTerminalCost, xi, soi::Int, n_xi::Int, n::Int, p)
     ∇xi = ForwardDiff.gradient(x_var -> evaluate_terminal_cost(cost, x_var, p), xi)
+    ∇x  = zeros(eltype(xi), n)
+    ∇x[soi+1:soi+n_xi] = ∇xi
+    return ∇x
+end
+
+# NonlinearTerminalCost: honor a user-supplied analytical gradient when present.
+function _terminal_gradient(cost::NonlinearTerminalCost, xi, soi::Int, n_xi::Int, n::Int, p)
+    ∇xi = cost.gradient === nothing ?
+        ForwardDiff.gradient(x_var -> evaluate_terminal_cost(cost, x_var, p), xi) :
+        cost.gradient(xi, p)
     ∇x  = zeros(eltype(xi), n)
     ∇x[soi+1:soi+n_xi] = ∇xi
     return ∇x

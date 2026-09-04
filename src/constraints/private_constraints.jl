@@ -94,6 +94,7 @@ function constraint_jacobian(c::ControlBounds{T}, x, u, p, t) where {T}
 end
 
 is_convex(::ControlBounds) = true
+depends_on_control(::ControlBounds) = true   # explicit: Ju = [-I;I], genuinely control-dependent
 
 # ============================================================================
 # StateBounds — box constraint on player i's state
@@ -170,6 +171,10 @@ function constraint_jacobian(c::StateBounds{T}, x, u, p, t) where {T}
 end
 
 is_convex(::StateBounds) = true
+depends_on_control(::StateBounds) = false   # evaluate_constraint/constraint_jacobian never
+                                             # reference u (Ju ≡ 0 by construction), so this
+                                             # is provably state-only and safe to evaluate at
+                                             # the terminal node (which has no control)
 
 # ============================================================================
 # PrivateNonlinear — general scalar/vector private constraint
@@ -208,13 +213,20 @@ struct PrivateNonlinearInequality{F, J} <: AbstractPrivateInequality
     func::F
     jacobian::J       # Nothing or Function (x,u,p,t) → (Jx, Ju)
     dim::Int
+    is_convex::Bool   # user assertion: func(x,u,p,t) is convex in (x,u) ⇒ solvers that
+                       # special-case convex constraints (e.g. FALCON's hard h_cvx path,
+                       # no AL slack/penalty) may treat it as such. Default false (safe).
+    depends_on_control::Bool   # user assertion: func/jacobian never reference u ⇒ solvers
+                       # may extend this constraint's node coverage to the terminal state
+                       # (which has no control). Default true (safe/unchanged behavior).
 
     function PrivateNonlinearInequality(
-        player::Int, func::F, jacobian::J, dim::Int
+        player::Int, func::F, jacobian::J, dim::Int, is_convex::Bool = false,
+        depends_on_control::Bool = true
     ) where {F, J}
         @assert player > 0 "player must be positive"
         @assert dim > 0    "dim must be positive"
-        new{F, J}(player, func, jacobian, dim)
+        new{F, J}(player, func, jacobian, dim, is_convex, depends_on_control)
     end
 end
 
@@ -260,22 +272,36 @@ constraint_output_dim(c::StateBounds)                = 2 * c.state_dim
 constraint_output_dim(c::PrivateNonlinearInequality) = c.dim
 constraint_output_dim(c::PrivateNonlinearEquality)   = c.dim
 
+is_convex(c::PrivateNonlinearInequality) = c.is_convex
+depends_on_control(c::PrivateNonlinearInequality) = c.depends_on_control
+
 # ============================================================================
 # Ergonomic constructors
 # ============================================================================
 
 """
-    PrivateInequality(player; func, dim, jacobian=nothing) -> PrivateNonlinearInequality
+    PrivateInequality(player; func, dim, jacobian=nothing, is_convex=false,
+                       depends_on_control=true)
+        -> PrivateNonlinearInequality
 
-Private inequality constraint: `func(x, u, p, t) ≤ 0`.
+Private inequality constraint: `func(x, u, p, t) ≤ 0`. Pass `is_convex=true` when
+`func` is genuinely convex in `(x,u)`; solvers may then drop the AL slack/penalty
+treatment reserved for nonconvex constraints and enforce it as a hard (re-linearized
+each iterate) inequality — e.g. FALCON's `h_cvx` path.
+
+Pass `depends_on_control=false` ONLY when `func`/`jacobian` are provably state-only (never
+reference `u`) — this lets solvers extend the constraint's node coverage to the terminal
+state, which has no associated control. Defaults to `true` (safe/unchanged behavior).
 """
 function PrivateInequality(
     player::Int;
     func::Function,
     dim::Int,
-    jacobian::Union{Nothing, Function} = nothing
+    jacobian::Union{Nothing, Function} = nothing,
+    is_convex::Bool = false,
+    depends_on_control::Bool = true
 )
-    PrivateNonlinearInequality(player, func, jacobian, dim)
+    PrivateNonlinearInequality(player, func, jacobian, dim, is_convex, depends_on_control)
 end
 
 """
