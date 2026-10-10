@@ -19,6 +19,24 @@ using LinearAlgebra
 #   players with structurally similar but distinct observation models share
 #   the same concrete type. This simplifies dispatch in POGameProblem and
 #   avoids an explosion of specializations at game-construction time.
+#
+# Design note — three noise/observation vocabularies, not yet unified:
+#   This file's PrivateObservation/SharedObservation model *measurement*
+#   noise: what a player observes about the state (η above). Two other,
+#   deliberately distinct vocabularies exist elsewhere in this package:
+#     - problems/IGNEP.jl's ObservationModel/NoisyObservation: the inverse-
+#       game *measurement* model used to fit an unknown objective from
+#       observed trajectories — same concept (measurement noise) but a
+#       separate hierarchy because inverse-game observation needs its own
+#       `observe`/`observation_dim` interface, not a Player field.
+#     - problems/stochastic_game.jl's ProcessNoiseModel/ItoSDEDynamics:
+#       *dynamics* noise — how the true state evolves, not what a player
+#       sees of it. Conflating this with measurement noise would make a
+#       StochasticGameProblem and a POGameProblem indistinguishable.
+#   Phase 2 (belief-state POMDPs, see docs/src/api/stochastic.md) is the
+#   natural place to converge PrivateObservation/SharedObservation with a
+#   POGameProblem belief updater; IGNEP's ObservationModel is expected to
+#   stay separate since it serves a different (inverse-game) problem class.
 # ============================================================================
 
 """

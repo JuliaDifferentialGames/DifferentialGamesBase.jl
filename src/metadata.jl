@@ -37,6 +37,9 @@ Cached information about game structure for solver efficiency.
 - `coupling_graph::CouplingGraph` : Coupling structure between players
 - `is_potential::Bool` : Whether game has potential function structure
 - `potential_function::Union{Nothing, Function}` : Potential function if exists
+- `communication::Union{Nothing, AbstractCommunicationTopology}` : Which other
+  players' information each player's controller may use; `nothing` means
+  unspecified (solvers should treat this as `FullCommunication()`).
 
 # Notes
 Computed once at problem construction, reused by solvers.
@@ -49,4 +52,13 @@ struct GameMetadata
     coupling_graph::CouplingGraph
     is_potential::Bool
     potential_function::Union{Nothing, Function}
+    communication::Union{Nothing, AbstractCommunicationTopology}
 end
+
+GameMetadata(
+    state_dims::Vector{Int}, control_dims::Vector{Int},
+    state_offsets::Vector{Int}, control_offsets::Vector{Int},
+    coupling_graph::CouplingGraph, is_potential::Bool,
+    potential_function::Union{Nothing, Function}
+) = GameMetadata(state_dims, control_dims, state_offsets, control_offsets,
+                  coupling_graph, is_potential, potential_function, nothing)

@@ -3,6 +3,7 @@ module DifferentialGamesBase
 using LinearAlgebra
 using SparseArrays
 using ForwardDiff
+using Random
 
 # ============================================================================
 # Include order — dependency constraints:
@@ -45,6 +46,7 @@ using ForwardDiff
 
 include("abstract/game_problem.jl")
 include("abstract/information_structure.jl")
+include("abstract/communication_structure.jl")
 include("abstract/player_dynamics.jl")
 include("objectives/base_objectives.jl")
 include("constraints/base_constraints.jl")
@@ -52,6 +54,7 @@ include("constraints/private_constraints.jl")
 include("constraints/shared_constraints.jl")
 include("constraints/standard_constraints.jl")
 include("constraints/continuous_time_constraints.jl")
+include("constraints/soc_epigraph_constraints.jl")
 include("metadata.jl")
 include("dynamics/dynamics.jl")
 include("time_horizon.jl")
@@ -61,10 +64,20 @@ include("problems/player_based_game.jl")
 include("abstract/strategy.jl")
 include("dynamics/discretization.jl")
 include("dynamics/dynamics_interface.jl")
+include("dynamics/stochastic_dynamics.jl")
+include("dynamics/stochastic_discretization.jl")
 include("expansion/trajectory_expansion.jl")
 include("objectives/cost_terms.jl")
 include("objectives/standard_costs.jl")
 include("solutions/gnep_solutions.jl")
+include("uncertainty/gaussian_belief.jl")
+include("uncertainty/propagation.jl")
+include("constraints/chance_constraints.jl")
+include("problems/stochastic_game.jl")
+include("problems/robust_game.jl")
+include("problems/po_game.jl")
+include("problems/determinize.jl")
+include("capabilities.jl")
 include("solve.jl")
 include("problems/IGNEP.jl")
 include("solutions/ignep_solutions.jl")
@@ -104,6 +117,17 @@ export
     is_feedback_compatible,
     is_open_loop,
     _infer_game_class
+
+# ============================================================================
+# Exports — Communication Topology
+# ============================================================================
+export
+    AbstractCommunicationTopology,
+    FullCommunication,
+    NoCommunication,
+    GraphCommunication,
+    DelayedCommunication,
+    BandwidthLimitedCommunication
 
 # ============================================================================
 # Exports — Abstract Player Dynamics
@@ -278,7 +302,11 @@ export
     keep_in_range,
     linear_coupling,
     ContinuousTimeConstraint,
-    continuous_time_constraint
+    continuous_time_constraint,
+    ContinuousTimeSharedConstraint,
+    continuous_time_shared_constraint,
+    SOCEpigraphConstraint,
+    soc_epigraph_constraint
 
 # ============================================================================
 # Exports — Game Problem
@@ -316,6 +344,7 @@ export
     n_steps,
     n_players,
     num_players,
+    time_horizon,
     state_dim,
     control_dim
 
@@ -369,7 +398,75 @@ export
     solve,
     _solve,
     solver_capabilities,
-    required_capabilities
+    required_capabilities,
+    CANONICAL_CAPABILITIES,
+    validate_capabilities
+
+# ============================================================================
+# Exports — Stochastic / Robust / Partially Observable Game Wrappers (Phase 0)
+# ============================================================================
+export
+    StochasticGameProblem,
+    ProcessNoiseModel,
+    RobustGameProblem,
+    DisturbanceSet,
+    POGameProblem,
+    get_W,
+    has_multiplicative_noise,
+    is_certainty_equivalent
+
+# ============================================================================
+# Exports — Stochastic Dynamics Core (Phase 1)
+# ============================================================================
+export
+    AbstractStochasticDynamics,
+    ItoSDEDynamics,
+    MarkovKernelDynamics,
+    diffusion_matrix,
+    noise_dim,
+    is_constant_diffusion,
+    constant_diffusion,
+    ConstantDiffusion,
+    StochasticDiscreteApproximation,
+    discretize_stochastic,
+    LinearizedGaussianDiscretization,
+    mean_step,
+    sample_step,
+    process_covariance,
+    transition_distribution,
+    from_mdp,
+    from_pomdp
+
+# ============================================================================
+# Exports — Uncertainty Propagation (Phase 1)
+# ============================================================================
+export
+    GaussianBelief,
+    mean,
+    covariance,
+    AbstractUncertaintyPropagator,
+    LinearizedGaussianPropagation,
+    UnscentedPropagation,
+    ParticlePropagation,
+    propagate
+
+# ============================================================================
+# Exports — Chance Constraints (Phase 1)
+# ============================================================================
+export
+    ChanceConstraint,
+    AbstractChanceEvaluator,
+    GaussianQuantileEvaluator,
+    MonteCarloChanceEvaluator,
+    ScenarioChanceEvaluator,
+    chance_residual,
+    AbstractRiskAllocation,
+    UniformRiskAllocation,
+    FixedRiskAllocation,
+    OptimizedRiskAllocation,
+    allocate_risk,
+    compile_chance_constraint,
+    determinize
 
 # ============================================================================
 # Exports — Trajectory Expansion (Phase 3)

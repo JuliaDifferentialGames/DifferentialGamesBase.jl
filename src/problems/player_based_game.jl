@@ -130,9 +130,11 @@ function DifferentialGame(
     tf::T,
     dt::T;
     shared_constraints::AbstractVector = [],
-    time_horizon::Union{Nothing, TimeHorizon{T}} = nothing
+    time_horizon::Union{Nothing, TimeHorizon{T}} = nothing,
+    force_type::Union{Nothing, Symbol} = nothing
 ) where {T}
     _check_players(players)
+    _check_information_structures(players, force_type)
     th = _resolve_time_horizon(tf, dt, time_horizon)
     return PDGNEProblem(Vector{PlayerSpec{T}}(players), shared_constraints,
                         th.tf, th.dt)
@@ -145,11 +147,44 @@ function DifferentialGame(
     tf::T,
     dt::T;
     shared_constraints::AbstractVector = [],
-    time_horizon::Union{Nothing, TimeHorizon{T}} = nothing
+    time_horizon::Union{Nothing, TimeHorizon{T}} = nothing,
+    force_type::Union{Nothing, Symbol} = nothing
 ) where {T}
     _check_players(players)
+    _check_information_structures(players, force_type)
     th = _resolve_time_horizon(tf, dt, time_horizon)
     return _build_shared_dynamics_game(dyn, players, shared_constraints, th)
+end
+
+# ============================================================================
+# Information-structure dispatch check
+#
+# `DifferentialGame` currently only ever constructs a `GameProblem{T}`
+# (deterministic). If players carry information structures that would require
+# a `POGameProblem` or Stackelberg solve (not yet implemented — see
+# `DifferentialGamesBenchmarks.jl`'s challenge-transformation layer for how
+# those are built explicitly), fail loudly instead of silently building a
+# deterministic game that misrepresents the players' actual information.
+# `force_type` bypasses this check for callers who know what they're doing.
+# ============================================================================
+
+function _check_information_structures(
+    players::Vector{<:PlayerSpec{T}},
+    force_type::Union{Nothing, Symbol}
+) where {T}
+    force_type === nothing || return nothing
+    class = _infer_game_class([p.info for p in players])
+    if class !== :deterministic
+        error(
+            "DifferentialGame only constructs deterministic GameProblems today, " *
+            "but the given players' information structures imply a `$class` game " *
+            "(e.g. PrivateObservation/SharedObservation ⇒ partially observable, " *
+            "AsymmetricInformation ⇒ Stackelberg). Build a POGameProblem/robust " *
+            "wrapper explicitly, or pass `force_type=:deterministic` to override " *
+            "this check if the mismatch is intentional."
+        )
+    end
+    return nothing
 end
 
 # Internal: shared dynamics → GameProblem

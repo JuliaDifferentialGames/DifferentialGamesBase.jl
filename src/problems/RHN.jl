@@ -87,6 +87,7 @@ end
 # ============================================================================
 
 n_players(p::RecedingHorizonNashProblem) = n_players(p.horizon_game)
+time_horizon(p::RecedingHorizonNashProblem) = time_horizon(p.horizon_game)
 state_dim(p::RecedingHorizonNashProblem) = state_dim(p.horizon_game)
 
 # ============================================================================

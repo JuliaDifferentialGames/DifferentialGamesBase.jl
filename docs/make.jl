@@ -25,6 +25,7 @@ makedocs(
             "Solutions"         => "api/solutions.md",
             "Solver Interface"  => "api/solvers.md",
             "Inverse Games"     => "api/inverse.md",
+            "Stochastic & POMDPs" => "api/stochastic.md",
         ],
     ],
     checkdocs = :none,

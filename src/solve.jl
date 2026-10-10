@@ -13,16 +13,10 @@ abstract type GameSolver end
 """
     solver_capabilities(::Type{<:GameSolver}) -> Vector{Symbol}
 
-Return symbols describing what problem types this solver handles.
-
-# Common Capabilities
-- `:LQGame`           — linear-quadratic games
-- `:NonlinearGame`    — general nonlinear dynamics and costs
-- `:GNEP`             — generalized Nash (shared constraints)
-- `:ConstrainedGame`  — private constraints
-- `:SeparableDynamics` — decoupled player dynamics
-- `:FeedbackPolicies` — computes feedback gains (not just trajectories)
-- `:DiscreteTime`     — requires discrete-time formulation
+Return symbols describing what problem types this solver handles. Must be a
+subset of `CANONICAL_CAPABILITIES` — see that constant for the full closed
+vocabulary (covers every symbol emitted by solvers in
+DifferentialGamesBaseSolvers.jl today, plus the Phase 0 problem-type additions).
 """
 solver_capabilities(::Type{<:GameSolver}) = Symbol[]
 
@@ -38,11 +32,36 @@ function required_capabilities(game::GameProblem)
     is_potential_game(game)     && push!(caps, :PotentialGame)
     !isempty(game.shared_constraints) && push!(caps, :GNEP)
     !isempty(game.private_constraints) && push!(caps, :ConstrainedGame)
+    isempty(game.private_constraints) && isempty(game.shared_constraints) &&
+        push!(caps, :UnconstrainedGame)
     has_shared_constraints(game) && push!(caps, :SharedConstraints)
     has_separable_dynamics(game) && push!(caps, :SeparableDynamics)
     game.time_horizon isa DiscreteTime && push!(caps, :DiscreteTime)
+    game.time_horizon isa ContinuousTime && push!(caps, :ContinuousTime)
     return unique(caps)
 end
+
+"""
+    required_capabilities(game::AbstractGameProblem) -> Vector{Symbol}
+
+Generic fallback for problem types without a specific method (e.g.
+`LexicographicGameProblem`, `ConvexGameProblem`, `InverseGameProblem`,
+`RecedingHorizonNashProblem`). Returns an empty vector — "unknown, don't
+warn" — rather than erroring, so `solve`'s capability check degrades
+gracefully instead of `MethodError`ing.
+"""
+required_capabilities(::AbstractGameProblem) = Symbol[]
+
+# Wrapper types (A(b)) forward to their nominal/underlying game and add their
+# own capability tag.
+required_capabilities(g::StochasticGameProblem) =
+    unique(push!(required_capabilities(g.nominal_game), :Stochastic))
+required_capabilities(g::RobustGameProblem) =
+    unique(push!(required_capabilities(g.nominal_game), :RobustDisturbance))
+required_capabilities(g::POGameProblem) =
+    unique(push!(required_capabilities(g.underlying_game), :PartiallyObservable))
+required_capabilities(g::ConvexGameProblem) =
+    unique(push!(required_capabilities(g.forward_game), :ConvexGame))
 
 # ============================================================================
 # WarmstartData

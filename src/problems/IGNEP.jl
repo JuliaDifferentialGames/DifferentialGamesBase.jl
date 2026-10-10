@@ -175,7 +175,7 @@ Observations are solver state, not problem specification. The same
 `InverseGameProblem` can be solved offline (batch), online (MONGOOSE), or
 re-solved from a different initial belief — all without mutating the problem.
 """
-struct InverseGameProblem{T}
+struct InverseGameProblem{T} <: AbstractInverseGameProblem{T}
     n_players::Int
     player_specs::Vector{PlayerSpec{T}}
     knowledge::Vector{PlayerKnowledge}            
@@ -225,6 +225,9 @@ end
 
 Return the player indices whose objectives are unknown (to be inferred).
 """
+n_players(prob::InverseGameProblem) = prob.n_players
+time_horizon(prob::InverseGameProblem) = prob.time_horizon
+
 unknown_players(prob::InverseGameProblem) =
     [i for (i, k) in enumerate(prob.knowledge) if k isa UnknownObjective]
 

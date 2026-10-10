@@ -267,6 +267,7 @@ end
 Return the number of players in the game.
 """
 n_players(g::GameProblem) = g.n_players
+time_horizon(g::GameProblem) = g.time_horizon
 
 # ============================================================================
 # Structural queries on GameProblem
@@ -854,6 +855,7 @@ struct LexicographicGameProblem{T} <: AbstractLexicographicGame{T}
 end
 
 n_players(g::LexicographicGameProblem)       = g.n_players
+time_horizon(g::LexicographicGameProblem)     = time_horizon(g.forward_game)
 state_dim(g::LexicographicGameProblem)        = state_dim(g.forward_game)
 state_dim(g::LexicographicGameProblem, i)     = state_dim(g.forward_game, i)
 control_dim(g::LexicographicGameProblem)      = control_dim(g.forward_game)
@@ -1021,6 +1023,7 @@ struct ConvexGameProblem{T} <: AbstractConvexGame{T}
 end
 
 n_players(g::ConvexGameProblem)              = g.n_players
+time_horizon(g::ConvexGameProblem)           = time_horizon(g.forward_game)
 state_dim(g::ConvexGameProblem)              = state_dim(g.forward_game)
 state_dim(g::ConvexGameProblem, i::Int)      = state_dim(g.forward_game, i)
 control_dim(g::ConvexGameProblem)            = control_dim(g.forward_game)

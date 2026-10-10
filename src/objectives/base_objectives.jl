@@ -144,6 +144,40 @@ function terminal_cost_hessian end
 
 
 # ============================================================================
+# Automatic differentiation fallback for scalar stage costs ℓ(x, u, p, t)
+#
+# Mirrors `automatic_differentiation_jacobian` in constraints.jl (same
+# concatenated-[x;u] ForwardDiff pattern), but for a scalar-valued function:
+# gradient/hessian instead of Jacobian.
+# ============================================================================
+
+"""
+    automatic_differentiation_gradient(func, x, u, p, t) -> (∇ₓℓ, ∇ᵤℓ)
+
+Compute the gradient of a scalar stage cost `ℓ(x, u, p, t)` via forward-mode
+automatic differentiation, split into state and control blocks.
+"""
+function automatic_differentiation_gradient(func::F, x, u, p, t) where {F}
+    n_x = length(x)
+    augmented_func(z) = func(view(z, 1:n_x), view(z, n_x+1:length(z)), p, t)
+    g = ForwardDiff.gradient(augmented_func, vcat(x, u))
+    return (g[1:n_x], g[n_x+1:end])
+end
+
+"""
+    automatic_differentiation_hessian(func, x, u, p, t) -> (Hₓₓ, Hᵤᵤ, Hₓᵤ)
+
+Compute the Hessian of a scalar stage cost `ℓ(x, u, p, t)` via forward-mode
+automatic differentiation, split into state/control/cross blocks.
+"""
+function automatic_differentiation_hessian(func::F, x, u, p, t) where {F}
+    n_x = length(x)
+    augmented_func(z) = func(view(z, 1:n_x), view(z, n_x+1:length(z)), p, t)
+    H = ForwardDiff.hessian(augmented_func, vcat(x, u))
+    return (H[1:n_x, 1:n_x], H[n_x+1:end, n_x+1:end], H[1:n_x, n_x+1:end])
+end
+
+# ============================================================================
 # NonlinearStageCost Implementations
 # ============================================================================
 

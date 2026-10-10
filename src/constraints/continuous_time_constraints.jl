@@ -120,3 +120,110 @@ function continuous_time_constraint(
 ) where {F, T <: Real}
     ContinuousTimeConstraint(player, func, dim, ε)
 end
+
+# ============================================================================
+# ContinuousTimeSharedConstraint — multi-agent (coupling) counterpart
+#
+# The FALCON paper's own formulation is NOT private-only: Eq. 7 defines the
+# violation metric Λ^i(t,x(t),u^i(t)) = Σ_ρ q_c^i(C_ρ(x(t),u^i(t))) with C_ρ
+# a function of the FULL joint state x(t), not agent i's state alone, and
+# Theorem IV.8(3) proves global convergence to a point that is "approximately
+# coupling-feasible in the continuous-time sense... for every coupling
+# constraint component ρ" — i.e. the paper's own convergence guarantee
+# explicitly covers coupling (shared/multi-agent) constraints under this same
+# continuous-time treatment. `ContinuousTimeConstraint` above only implements
+# the private special case; this type closes that gap for constraints that
+# genuinely couple ≥2 players (e.g. minimum inter-agent separation).
+# ============================================================================
+
+"""
+    ContinuousTimeSharedConstraint{F, T} <: AbstractSharedInequality
+
+Shared (multi-agent) counterpart to [`ContinuousTimeConstraint`](@ref): a
+coupling constraint `c(x_joint, u_joint, p, t) ≤ 0` that must hold
+*continuously* along every involved player's trajectory, enforced via the
+same cubic exterior-penalty node scheme (Eq. 8-9): `ẏ_j = q_c(c_j(x,u,p,t))`,
+node constraint `y_j(t_{k+1}) - y_j(t_k) ≤ ε`.
+
+# Fields
+- `players` : Player indices involved (≥2), sorted ascending
+- `func`    : `(x_joint, u_joint, p, t) → AbstractVector{T}` — the joint
+              constraint values `c(x,u,p,t) ≤ 0`. `x_joint`/`u_joint` are the
+              FULL concatenated state/control across all players in the
+              game (same convention `_linearise_coupling` already uses for
+              ordinary `SharedInequality`), so `func` may reference any
+              subset of players, not just the lowest-indexed one.
+- `dim`     : Output dimension of `func` (≥ 1)
+- `ε`       : Node tolerance per component (Eq. 9); smaller ε → tighter
+              continuous-time enforcement
+
+# Example
+```julia
+# Players 1 and 2 must stay ≥ d_min apart at all times, not just at knots
+c = ContinuousTimeSharedConstraint([1, 2],
+    (x, u, p, t) -> begin
+        p1 = x[1:3]; p2 = x[n_x1+1:n_x1+3]
+        [d_min - sqrt(sum(abs2, p1 .- p2) + ε_reg^2)]
+    end,
+    1, 1e-3
+)
+```
+"""
+struct ContinuousTimeSharedConstraint{F, T} <: AbstractSharedInequality
+    players::Vector{Int}
+    func::F
+    dim::Int
+    ε::T
+
+    function ContinuousTimeSharedConstraint(
+        players::Vector{Int}, func::F, dim::Int, ε::T
+    ) where {F, T <: Real}
+        @assert length(players) >= 2 "ContinuousTimeSharedConstraint requires ≥2 players"
+        @assert allunique(players)   "Player indices must be distinct"
+        @assert dim > 0              "dim must be positive"
+        @assert ε > 0                "ε must be positive"
+        new{F, T}(sort(players), func, dim, ε)
+    end
+end
+
+function evaluate_constraint(c::ContinuousTimeSharedConstraint, x, u, p, t)
+    return c.func(x, u, p, t)
+end
+
+function constraint_jacobian(c::ContinuousTimeSharedConstraint, x, u, p, t)
+    nx = length(x); nu = length(u)
+    z  = vcat(x, u)
+    J  = ForwardDiff.jacobian(
+        z_var -> c.func(z_var[1:nx], z_var[nx+1:end], p, t), z
+    )
+    return (J[:, 1:nx], J[:, nx+1:end])
+end
+
+# Not convex in z (special-cased continuous-time handling, same as the
+# private ContinuousTimeConstraint) — routed to FALCON's dedicated CTC node-
+# constraint path, not the standard AL coupling path.
+is_convex(::ContinuousTimeSharedConstraint) = false
+
+"""
+    continuous_time_shared_constraint(players; func, dim, ε) -> ContinuousTimeSharedConstraint
+
+Ergonomic constructor mirroring [`continuous_time_constraint`](@ref) for the
+shared (multi-agent) case.
+
+# Example
+```julia
+c = continuous_time_shared_constraint([1, 2];
+    func = (x, u, p, t) -> [d_min - norm(x[1:3] .- x[n_x1+1:n_x1+3])],
+    dim  = 1,
+    ε    = 1e-3
+)
+```
+"""
+function continuous_time_shared_constraint(
+    players::Vector{Int};
+    func::F,
+    dim::Int,
+    ε::T = 1e-3
+) where {F, T <: Real}
+    ContinuousTimeSharedConstraint(players, func, dim, ε)
+end

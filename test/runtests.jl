@@ -9,6 +9,8 @@ using DifferentialGamesBase
     include("test_phase2.jl")
     include("test_phase3.jl")
     include("test_phase4.jl")
+    include("test_phase5.jl")
+    include("test_phase6_stochastic.jl")
     include("game_building_tests.jl")
     include("inverse_game_building_tests.jl")
     include("ltv_tests.jl")

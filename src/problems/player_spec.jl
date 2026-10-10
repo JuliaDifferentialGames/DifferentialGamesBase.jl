@@ -11,6 +11,9 @@ Specification for a single player in a PD-GNEP.
 - `dynamics::Function` : Dynamics function fᵢ(xᵢ, uᵢ, p, t)
 - `objective::PlayerObjective` : Cost functional
 - `constraints::Vector{PrivateConstraint}` : Player-specific constraints
+- `info::AbstractInformationStructure` : What this player observes; defaults to
+  `PerfectStateInformation()`. Used by `DifferentialGame` to pick the resulting
+  `AbstractGameProblem` subtype (see `_infer_game_class`).
 
 # Notes
 Used to build PD-GNEPs where each player has separable dynamics.
@@ -24,6 +27,7 @@ struct PlayerSpec{T}
     dynamics::Function
     objective::PlayerObjective
     constraints::AbstractVector
+    info::AbstractInformationStructure
 
     function PlayerSpec{T}(
         id::Int,
@@ -32,14 +36,15 @@ struct PlayerSpec{T}
         x0::Vector{T},
         dynamics::Function,
         objective::PlayerObjective,
-        constraints::AbstractVector
+        constraints::AbstractVector,
+        info::AbstractInformationStructure = PerfectStateInformation()
     ) where {T}
         @assert id > 0 "Player ID must be positive"
         @assert n > 0 "State dimension must be positive"
         @assert m > 0 "Control dimension must be positive"
         @assert length(x0) == n "Initial state must match state dimension"
         @assert objective.player_id == id "Objective player_id must match PlayerSpec id"
-        new{T}(id, n, m, x0, dynamics, objective, Vector{Any}(constraints))
+        new{T}(id, n, m, x0, dynamics, objective, Vector{Any}(constraints), info)
     end
 end
 
@@ -61,3 +66,14 @@ PlayerSpec(
     objective::PlayerObjective,
     constraints::AbstractVector
 ) where {T} = PlayerSpec{T}(id, n, m, x0, dynamics, objective, constraints)
+
+PlayerSpec(
+    id::Int,
+    n::Int,
+    m::Int,
+    x0::Vector{T},
+    dynamics::Function,
+    objective::PlayerObjective,
+    constraints::AbstractVector,
+    info::AbstractInformationStructure
+) where {T} = PlayerSpec{T}(id, n, m, x0, dynamics, objective, constraints, info)
