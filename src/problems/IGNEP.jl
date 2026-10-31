@@ -220,14 +220,14 @@ end
 # Accessors
 # ============================================================================
 
+n_players(prob::InverseGameProblem) = prob.n_players
+time_horizon(prob::InverseGameProblem) = prob.time_horizon
+
 """
     unknown_players(prob::InverseGameProblem) -> Vector{Int}
 
 Return the player indices whose objectives are unknown (to be inferred).
 """
-n_players(prob::InverseGameProblem) = prob.n_players
-time_horizon(prob::InverseGameProblem) = prob.time_horizon
-
 unknown_players(prob::InverseGameProblem) =
     [i for (i, k) in enumerate(prob.knowledge) if k isa UnknownObjective]
 

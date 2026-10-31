@@ -415,7 +415,7 @@ function LQGameProblem(
     M::Union{Vector{Matrix{T}}, Nothing} = nothing,
     q::Union{Vector{Vector{T}}, Nothing} = nothing,
     r::Union{Vector{Vector{T}}, Nothing} = nothing
-) where {T}
+) where {T<:Real}
     n = size(A, 1)
     n_players = length(B)
     @assert length(Q) == n_players && length(R) == n_players && length(Qf) == n_players
@@ -448,6 +448,35 @@ function LQGameProblem(
     )
 end
 
+"""
+    LQGameProblem(A, B, Q, R, Qf, x0, tf; dt=0.01, kwargs...)
+
+Converting method: accepts any `AbstractMatrix`/`AbstractVector` arguments (for example
+`I(n)`, `Diagonal`, integer matrices) and converts them to dense `Matrix{T}`/`Vector{T}`
+with `T = Float64`, then calls the strict constructor.
+"""
+function LQGameProblem(
+    A::AbstractMatrix, B::AbstractVector{<:AbstractMatrix},
+    Q::AbstractVector{<:AbstractMatrix}, R::AbstractVector{<:AbstractMatrix},
+    Qf::AbstractVector{<:AbstractMatrix},
+    x0::AbstractVector, tf::Real;
+    dt::Real = 0.01, kwargs...
+)
+    T  = Float64
+    cm(X) = Matrix{T}(X)
+    cv(X) = Vector{T}(X)
+    conv(kw) = kw === nothing ? nothing : kw
+    kw = Dict{Symbol,Any}(kwargs)
+    haskey(kw, :M) && kw[:M] !== nothing && (kw[:M] = Matrix{T}[cm(X) for X in kw[:M]])
+    haskey(kw, :q) && kw[:q] !== nothing && (kw[:q] = Vector{T}[cv(X) for X in kw[:q]])
+    haskey(kw, :r) && kw[:r] !== nothing && (kw[:r] = Vector{T}[cv(X) for X in kw[:r]])
+    return LQGameProblem(
+        cm(A), Matrix{T}[cm(X) for X in B], Matrix{T}[cm(X) for X in Q],
+        Matrix{T}[cm(X) for X in R], Matrix{T}[cm(X) for X in Qf],
+        cv(x0), T(tf); dt = T(dt), kw...
+    )
+end
+
 # ============================================================================
 # LTVLQGameProblem — LTV constructor
 # ============================================================================
@@ -472,7 +501,7 @@ function LTVLQGameProblem(
     M_seq::Union{Vector{Vector{Matrix{T}}}, Nothing} = nothing,
     q_seq::Union{Vector{Vector{Vector{T}}}, Nothing} = nothing,
     r_seq::Union{Vector{Vector{Vector{T}}}, Nothing} = nothing
-) where {T}
+) where {T<:Real}
     N         = length(A_seq)
     N_from_dt = Int(round(tf / dt))
     @assert N == N_from_dt "A_seq length $N ≠ tf/dt=$N_from_dt"
@@ -505,6 +534,35 @@ function LTVLQGameProblem(
     return GameProblem{T}(
         n_players, objectives, dynamics, x0,
         AbstractPrivateConstraint[], AbstractSharedConstraint[], time_horizon, metadata
+    )
+end
+
+"""
+    LTVLQGameProblem(A_seq, B_seq, Q_seq, R_seq, Qf, x0, tf; dt=0.01, kwargs...)
+
+Converting method: accepts any `AbstractMatrix`/`AbstractVector` element types (for example
+`I(n)`, `Diagonal`) and converts them to dense `Float64` arrays before calling the strict
+constructor.
+"""
+function LTVLQGameProblem(
+    A_seq::AbstractVector{<:AbstractMatrix},
+    B_seq::AbstractVector{<:AbstractVector{<:AbstractMatrix}},
+    Q_seq::AbstractVector{<:AbstractVector{<:AbstractMatrix}},
+    R_seq::AbstractVector{<:AbstractVector{<:AbstractMatrix}},
+    Qf::AbstractVector{<:AbstractMatrix},
+    x0::AbstractVector, tf::Real;
+    dt::Real = 0.01, kwargs...
+)
+    T   = Float64
+    cm(X)  = Matrix{T}(X)
+    cvm(Xs) = Matrix{T}[cm(X) for X in Xs]
+    kw = Dict{Symbol,Any}(kwargs)
+    haskey(kw, :M_seq) && kw[:M_seq] !== nothing && (kw[:M_seq] = [cvm(Xs) for Xs in kw[:M_seq]])
+    haskey(kw, :q_seq) && kw[:q_seq] !== nothing && (kw[:q_seq] = [Vector{T}[Vector{T}(v) for v in vs] for vs in kw[:q_seq]])
+    haskey(kw, :r_seq) && kw[:r_seq] !== nothing && (kw[:r_seq] = [Vector{T}[Vector{T}(v) for v in vs] for vs in kw[:r_seq]])
+    return LTVLQGameProblem(
+        cvm(A_seq), [cvm(Bs) for Bs in B_seq], [cvm(Qs) for Qs in Q_seq],
+        [cvm(Rs) for Rs in R_seq], cvm(Qf), Vector{T}(x0), T(tf); dt = T(dt), kw...
     )
 end
 

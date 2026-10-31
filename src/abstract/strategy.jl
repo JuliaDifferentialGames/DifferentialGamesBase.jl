@@ -328,7 +328,7 @@ function apply_strategy(
         û_ik   = s.nominal_controls[i][:, k]
         P_ik   = s.gains[i][k]
         α_ik   = s.feedforward[i][k]
-        u[rng] = û_ik - P_ik * δx + η .* α_ik   # + sign: α is the step direction
+        u[rng] = û_ik - P_ik * δx - η .* α_ik   # matches the documented law ûᵢ - Pᵢδx - ηαᵢ
     end
     return u
 end

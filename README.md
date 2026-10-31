@@ -1,5 +1,7 @@
 # DifferentialGamesBase.jl
 
+<p align="center"><img src="https://raw.githubusercontent.com/JuliaDifferentialGames/DifferentialGames.jl/main/docs/src/assets/logo.png" alt="DifferentialGames.jl logo" width="160"></p>
+
 [![CI](https://github.com/JuliaDifferentialGames/DifferentialGamesBase.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/JuliaDifferentialGames/DifferentialGamesBase.jl/actions/workflows/CI.yml)
 [![Docs](https://img.shields.io/badge/docs-dev-blue.svg)](https://JuliaDifferentialGames.github.io/DifferentialGames.jl/dev)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)

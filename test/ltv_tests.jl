@@ -346,3 +346,14 @@ end
     end
 
 end
+@testset "LQ/LTV converting constructors accept I(n) and Diagonal" begin
+    using LinearAlgebra
+    N = 10
+    g = LTVLQGameProblem([I(2) for _ in 1:N],
+                         [[I(2)[:, 1:1] for _ in 1:N], [I(2)[:, 2:2] for _ in 1:N]],
+                         [[I(2) for _ in 1:N] for _ in 1:2],
+                         [[fill(0.1, 1, 1) for _ in 1:N] for _ in 1:2],
+                         [I(2), I(2)], [1, 0], 1.0; dt = 0.1)
+    @test num_players(g) == 2
+    @test n_steps(g) == N
+end
