@@ -44,7 +44,7 @@ function determinize(
     sg::StochasticGameProblem{T};
     propagator::AbstractUncertaintyPropagator = LinearizedGaussianPropagation(),
     evaluator::AbstractChanceEvaluator = GaussianQuantileEvaluator(),
-    risk_allocation::AbstractRiskAllocation = UniformRiskAllocation()
+    risk_allocation::AbstractRiskAllocation = sg.risk_allocation
 ) where {T}
     nominal = sg.nominal_game
     th = time_horizon(nominal)
@@ -92,8 +92,19 @@ function determinize(
     end
 
     # Compile ChanceConstraints; carry other constraints over, evaluated on μ.
+    # Horizon-wide budget: one ε per (constraint, step, component), union-bound split.
+    all_ccs = all_chance_constraints(sg)
+    budget_eps = sg.joint_risk === nothing ? nothing :
+        allocate_horizon_risk(risk_allocation, all_ccs, n_steps(nominal), sg.joint_risk)
+    step_risks_of(c) = begin
+        budget_eps === nothing && return nothing
+        idx = findfirst(cc -> cc === c, all_ccs)
+        idx === nothing ? nothing : budget_eps[idx]
+    end
+    time_index = t -> t isa Integer ? Int(t) : round(Int, t / dt) + 1
     compile_or_wrap(c::ChanceConstraint) =
-        compile_chance_constraint(c, belief_fn, propagator, evaluator; risk_allocation)
+        compile_chance_constraint(c, belief_fn, propagator, evaluator; risk_allocation,
+                                  step_risks = step_risks_of(c), time_index)
     compile_or_wrap(c::AbstractPrivateInequality) =
         PrivateInequality(get_player(c);
             func = (z, u, p, t) -> evaluate_constraint(c, belief_fn(z)[1], u, p, t),
@@ -111,8 +122,11 @@ function determinize(
             func = (z, u, p, t) -> evaluate_constraint(c, belief_fn(z)[1], u, p, t),
             dim = constraint_output_dim(c))
 
-    aug_private = [compile_or_wrap(c) for c in nominal.private_constraints]
-    aug_shared = [compile_or_wrap(c) for c in nominal.shared_constraints]
+    declared = sg.chance_constraints
+    aug_private = [compile_or_wrap(c) for c in Iterators.flatten((nominal.private_constraints,
+                                                                  filter(is_private, declared)))]
+    aug_shared = [compile_or_wrap(c) for c in Iterators.flatten((nominal.shared_constraints,
+                                                                 filter(is_shared, declared)))]
 
     aug_metadata = GameMetadata(
         fill(aug_dim, 1), nominal.metadata.control_dims,

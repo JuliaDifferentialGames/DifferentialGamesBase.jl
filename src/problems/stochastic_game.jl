@@ -106,12 +106,20 @@ struct StochasticGameProblem{T} <: AbstractStochasticGame{T}
     stochastic_dynamics::AbstractStochasticDynamics{T}
     initial_covariance::Matrix{T}
     process_covariances::Union{Nothing, Vector{Matrix{T}}}
+    information::AbstractInformationStructure
+    chance_constraints::Vector{ChanceConstraint}
+    risk_allocation::AbstractRiskAllocation
+    joint_risk::Union{Nothing, JointRiskBudget}
 
     function StochasticGameProblem{T}(
         nominal_game::AbstractDeterministicGame{T},
         stochastic_dynamics::AbstractStochasticDynamics{T},
         initial_covariance::Matrix{T},
-        process_covariances::Union{Nothing, Vector{Matrix{T}}} = nothing
+        process_covariances::Union{Nothing, Vector{Matrix{T}}} = nothing;
+        information::AbstractInformationStructure = PerfectStateInformation(),
+        chance_constraints::AbstractVector = ChanceConstraint[],
+        risk_allocation::AbstractRiskAllocation = UniformRiskAllocation(),
+        joint_risk::Union{Nothing, JointRiskBudget} = nothing
     ) where {T}
         n = total_state_dim(nominal_game.dynamics)
         @assert total_state_dim(stochastic_dynamics) == n "stochastic_dynamics state dim must match nominal_game"
@@ -120,23 +128,30 @@ struct StochasticGameProblem{T} <: AbstractStochasticGame{T}
         if process_covariances !== nothing
             @assert all(W -> size(W) == (n, n), process_covariances) "each process covariance must be n×n"
         end
-        new{T}(nominal_game, stochastic_dynamics, initial_covariance, process_covariances)
+        ccs = ChanceConstraint[cc for cc in chance_constraints]
+        for cc in ccs
+            ids = is_private(cc) ? (get_player(cc),) : Tuple(get_players(cc))
+            @assert all(1 <= i <= n_players(nominal_game) for i in ids) "ChanceConstraint references an unknown player"
+        end
+        new{T}(nominal_game, stochastic_dynamics, initial_covariance, process_covariances,
+               information, ccs, risk_allocation, joint_risk)
     end
 end
 
-function StochasticGameProblem{T}(g::AbstractDeterministicGame{T}, sd::AbstractStochasticDynamics{T}) where {T}
+
+function StochasticGameProblem{T}(g::AbstractDeterministicGame{T}, sd::AbstractStochasticDynamics{T}; kwargs...) where {T}
     n = total_state_dim(g.dynamics)
-    StochasticGameProblem{T}(g, sd, zeros(T, n, n), nothing)
+    StochasticGameProblem{T}(g, sd, zeros(T, n, n), nothing; kwargs...)
 end
 
 StochasticGameProblem(
     nominal_game::AbstractDeterministicGame{T},
     stochastic_dynamics::AbstractStochasticDynamics{T};
-    initial_covariance::Union{Nothing, AbstractMatrix} = nothing
+    initial_covariance::Union{Nothing, AbstractMatrix} = nothing, kwargs...
 ) where {T} = StochasticGameProblem{T}(nominal_game, stochastic_dynamics,
     initial_covariance === nothing ?
         zeros(T, total_state_dim(nominal_game.dynamics), total_state_dim(nominal_game.dynamics)) :
-        Matrix{T}(initial_covariance), nothing)
+        Matrix{T}(initial_covariance), nothing; kwargs...)
 
 """
     StochasticGameProblem(nominal_game, pnm::ProcessNoiseModel; initial_covariance=nothing)
@@ -149,15 +164,15 @@ carries `pnm.Σ[1]` only as a placeholder. `initial_covariance` is the
 covariance of the uncertain initial state `x₀ ~ N(x0, Σ₀)` (default zero).
 """
 function StochasticGameProblem(nominal_game::AbstractDeterministicGame{T}, pnm::ProcessNoiseModel{T};
-        initial_covariance::Union{Nothing, AbstractMatrix} = nothing) where {T}
+        initial_covariance::Union{Nothing, AbstractMatrix} = nothing, kwargs...) where {T}
     n = total_state_dim(nominal_game.dynamics)
     Σ0 = initial_covariance === nothing ? zeros(T, n, n) : Matrix{T}(initial_covariance)
     if is_ltv(pnm)
         sde = _ito_sde_from_process_noise(nominal_game.dynamics, ProcessNoiseModel(pnm.Σ[1]))
-        return StochasticGameProblem{T}(nominal_game, sde, Σ0, Vector{Matrix{T}}(pnm.Σ))
+        return StochasticGameProblem{T}(nominal_game, sde, Σ0, Vector{Matrix{T}}(pnm.Σ); kwargs...)
     end
     sde = _ito_sde_from_process_noise(nominal_game.dynamics, pnm)
-    StochasticGameProblem{T}(nominal_game, sde, Σ0, nothing)
+    StochasticGameProblem{T}(nominal_game, sde, Σ0, nothing; kwargs...)
 end
 
 """
@@ -167,6 +182,17 @@ Discrete-time additive Gaussian process noise `w_k ~ N(0, W_k)`; `W` is one PSD
 matrix (LTI) or a vector of them (one per step). Alias of [`ProcessNoiseModel`](@ref).
 """
 const DiscreteGaussianNoise = ProcessNoiseModel
+
+"""
+    all_chance_constraints(g::StochasticGameProblem) -> Vector{ChanceConstraint}
+
+The problem's declared `chance_constraints` plus any `ChanceConstraint`s already
+sitting in the nominal game's private/shared lists.
+"""
+all_chance_constraints(g::StochasticGameProblem) = ChanceConstraint[
+    g.chance_constraints...;
+    [c for c in g.nominal_game.private_constraints if c isa ChanceConstraint];
+    [c for c in g.nominal_game.shared_constraints if c isa ChanceConstraint]]
 
 n_players(g::StochasticGameProblem) = n_players(g.nominal_game)
 time_horizon(g::StochasticGameProblem) = time_horizon(g.nominal_game)

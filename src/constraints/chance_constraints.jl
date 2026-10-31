@@ -255,11 +255,16 @@ function compile_chance_constraint(
     belief_fn::Function,
     propagator::AbstractUncertaintyPropagator,
     evaluator::AbstractChanceEvaluator;
-    risk_allocation::AbstractRiskAllocation = UniformRiskAllocation()
+    risk_allocation::AbstractRiskAllocation = UniformRiskAllocation(),
+    step_risks::Union{Nothing, AbstractMatrix} = nothing,
+    time_index::Function = t -> t isa Integer ? Int(t) : 1
 )
     inner = cc.constraint
     dim = constraint_output_dim(inner)
     epsilons = allocate_risk(risk_allocation, cc)
+    # With a horizon-wide budget, ε depends on the step: step_risks is dim × steps.
+    ε_at(i, t) = step_risks === nothing ? epsilons[i] :
+                 step_risks[i, clamp(time_index(t), 1, size(step_risks, 2))]
 
     residual = (z, u, p, t) -> begin
         μ, Σ = belief_fn(z)
@@ -268,7 +273,7 @@ function compile_chance_constraint(
         map(1:dim) do i
             ∇c = Jx[i, :]
             c_var = dot(∇c, Σ * ∇c)
-            chance_residual(evaluator, c_val[i], c_var, epsilons[i])
+            chance_residual(evaluator, c_val[i], c_var, ε_at(i, t))
         end
     end
 
@@ -277,4 +282,208 @@ function compile_chance_constraint(
     else
         SharedInequality(get_players(cc); func=residual, dim=dim)
     end
+end
+
+# ============================================================================
+# Guarantee classification
+# ============================================================================
+
+"""
+    is_affine_constraint(c) -> Bool
+
+`true` for constraints known to be affine in `(x, u)`. Under a Gaussian law an
+affine scalar chance constraint is evaluated *exactly* by the quantile
+formula; for anything else the formula is a first-order approximation.
+"""
+is_affine_constraint(::AbstractConstraint) = false
+is_affine_constraint(::ControlBounds) = true
+is_affine_constraint(::StateBounds) = true
+is_affine_constraint(::LinearCoupling) = true
+is_affine_constraint(cc::ChanceConstraint) = is_affine_constraint(cc.constraint)
+
+"""
+    guarantee_class(cc::ChanceConstraint, evaluator) -> Symbol
+
+How strong the probability statement `Pr[c ≤ 0] ≥ 1-ε` is when `cc` is
+enforced through `evaluator` under a Gaussian state/control law:
+`:exact_affine_gaussian` or `:linearized_approximation`. (`:certified_upper_bound`
+is reserved for evaluators that supply a conservative bound.)
+"""
+guarantee_class(cc::ChanceConstraint, ::GaussianQuantileEvaluator) =
+    is_affine_constraint(cc) ? :exact_affine_gaussian : :linearized_approximation
+
+# ============================================================================
+# Standard-normal CDF and violation probabilities
+# ============================================================================
+
+# erfc to ~1e-14: Taylor series of erf for |x| ≤ 2.5, Lentz continued fraction beyond.
+function _erfc(x::Real)
+    ax = abs(x)
+    if ax <= 2.5
+        term = ax; s = ax; x2 = ax * ax
+        for n in 1:200
+            term *= -x2 / n
+            δ = term / (2n + 1)
+            s += δ
+            abs(δ) < 1e-17 * abs(s) && break
+        end
+        erfax = 2 / sqrt(π) * s
+        return x >= 0 ? 1 - erfax : 1 + erfax
+    end
+    # erfc(x) = exp(-x²)/√π · 1/(x + (1/2)/(x + 1/(x + (3/2)/(x + 2/(x + …)))))
+    f = ax
+    for k in 60:-1:1
+        f = ax + (k / 2) / f
+    end
+    c = exp(-ax * ax) / (sqrt(π) * f)
+    return x >= 0 ? c : 2 - c
+end
+
+"Standard-normal CDF Φ(z)."
+_norm_cdf(z::Real) = 0.5 * _erfc(-z / sqrt(2))
+
+"""
+    gaussian_violation_probability(c_mean, c_var) -> Real
+
+`Pr[c ≤ 0 fails] = Pr[c > 0]` for `c ~ N(c_mean, c_var)`. Exact for an affine
+constraint under a Gaussian law; zero variance gives the deterministic indicator.
+"""
+function gaussian_violation_probability(c_mean::Real, c_var::Real)
+    c_var <= 0 && return c_mean > 0 ? 1.0 : 0.0
+    return 1 - _norm_cdf(-c_mean / sqrt(c_var))
+end
+
+# ============================================================================
+# Horizon-wide joint risk allocation (union bound)
+# ============================================================================
+
+"""
+    JointRiskBudget(total)
+
+A trajectory-wide failure budget: `Pr[some constraint is violated at some step]
+≤ total` is guaranteed (by the union bound) once the per-event risks `ε_{c,k,m}`
+sum to at most `total` AND every individual chance statement is valid.
+"""
+struct JointRiskBudget{R<:Real}
+    total::R
+    function JointRiskBudget(total::R) where {R<:Real}
+        @assert 0 < total < 1 "joint risk budget must be in (0, 1)"
+        new{R}(total)
+    end
+end
+
+"""
+    allocate_horizon_risk(policy, ccs, steps, budget::JointRiskBudget) -> Vector{Matrix}
+
+Per-event risks `ε_{c,k,m}` for every constraint `c ∈ ccs`, step `k = 1:steps`
+and output component `m`, returned as one `dim_c × steps` matrix per constraint.
+`UniformRiskAllocation` gives each event `total / (#events)`.
+"""
+function allocate_horizon_risk(::UniformRiskAllocation, ccs::AbstractVector, steps::Int,
+                               budget::JointRiskBudget)
+    n_events = sum(constraint_output_dim(cc) for cc in ccs) * steps
+    ε = budget.total / n_events
+    return [fill(ε, constraint_output_dim(cc), steps) for cc in ccs]
+end
+
+"Union-bound failure probability `Σ ε_{c,k,m}` implied by an allocation."
+joint_risk_bound(eps::AbstractVector{<:AbstractMatrix}) = sum(sum, eps)
+
+"""
+    check_risk_budget(eps, budget) -> Bool
+
+Whether the allocated per-event risks respect the joint budget.
+"""
+check_risk_budget(eps::AbstractVector{<:AbstractMatrix}, budget::JointRiskBudget) =
+    joint_risk_bound(eps) <= budget.total * (1 + 1e-12)
+
+# ============================================================================
+# Checking chance constraints on Gaussian trajectory moments (no solver needed)
+# ============================================================================
+
+"""
+    ChanceCheck
+
+Result of evaluating one chance event `(constraint c, step k, component m)`.
+`violation_probability` is exact when `guarantee == :exact_affine_gaussian`
+and a linearized approximation otherwise.
+"""
+struct ChanceCheck
+    constraint::Int
+    step::Int
+    component::Int
+    risk::Float64
+    residual::Float64
+    violation_probability::Float64
+    satisfied::Bool
+    guarantee::Symbol
+end
+
+"""
+    check_chance_constraints(ccs, x_mean, u_mean, Σx, Σu, Σxu; risk, evaluator) -> Vector{ChanceCheck}
+
+Evaluate each `ChanceConstraint` at every step from Gaussian trajectory moments:
+`x_mean[:, k]`, `u_mean[:, k]`, `Σx[k]`, `Σu[k]`, `Σxu[k] = Cov(x_k, u_k)`.
+`risk[c]` is the `dim_c × steps` allocation (default: each constraint's own
+`risk` split uniformly over its components). Use [`joint_risk_bound`](@ref) on
+the allocation for the trajectory-wide union bound.
+"""
+function check_chance_constraints(ccs::AbstractVector, x_mean::AbstractMatrix, u_mean::AbstractMatrix,
+        Σx, Σu, Σxu; risk = nothing, evaluator::AbstractChanceEvaluator = GaussianQuantileEvaluator())
+    steps = size(u_mean, 2)
+    out = ChanceCheck[]
+    for (ci, cc) in enumerate(ccs)
+        inner = cc.constraint
+        dim = constraint_output_dim(inner)
+        ε = risk === nothing ? reshape(allocate_risk(UniformRiskAllocation(), cc), dim, 1) .* ones(1, steps) : risk[ci]
+        for k in 1:steps
+            x = x_mean[:, k]; u = u_mean[:, k]
+            c = evaluate_constraint(inner, x, u, nothing, k)
+            Jx, Ju = constraint_jacobian(inner, x, u, nothing, k)
+            for m in 1:dim
+                gx = Jx[m, :]; gu = Ju[m, :]
+                v = dot(gx, Σx[k] * gx) + 2 * dot(gx, Σxu[k] * gu) + dot(gu, Σu[k] * gu)
+                res = chance_residual(evaluator, c[m], v, ε[m, k])
+                push!(out, ChanceCheck(ci, k, m, ε[m, k], res, gaussian_violation_probability(c[m], v),
+                                       res <= 0, guarantee_class(cc, evaluator)))
+            end
+        end
+    end
+    return out
+end
+
+"""
+    joint_violation_bound(checks) -> Float64
+
+Union bound `min(1, Σ Pr[violation])` on the probability of any violation along
+the trajectory, valid when each event probability is valid (not merely
+approximate — see `ChanceCheck.guarantee`).
+"""
+joint_violation_bound(checks::AbstractVector{ChanceCheck}) = min(1.0, sum(c.violation_probability for c in checks))
+
+# ============================================================================
+# Empirical (simulation) validation
+# ============================================================================
+
+"""
+    empirical_violation_rates(g; z = 1.96) -> NamedTuple
+
+`g` is an `events × samples` matrix of constraint values (`g ≤ 0` is feasible).
+Returns per-event violation frequencies, the frequency of *any* violation per
+sample, the sample count, and Wilson score intervals at normal quantile `z`.
+A zero count is an estimate, not a safety guarantee.
+"""
+function empirical_violation_rates(g::AbstractMatrix; z::Real = 1.96)
+    ne, ns = size(g)
+    viol = g .> 0
+    per_event = vec(sum(viol; dims = 2)) ./ ns
+    any_rate = count(j -> any(@view viol[:, j]), 1:ns) / ns
+    wilson(p) = begin
+        den = 1 + z^2 / ns
+        mid = (p + z^2 / (2ns)) / den
+        half = z * sqrt(p * (1 - p) / ns + z^2 / (4ns^2)) / den
+        (max(0.0, mid - half), min(1.0, mid + half))
+    end
+    return (per_event = per_event, per_event_interval = wilson.(per_event),
+            any_violation = any_rate, any_violation_interval = wilson(any_rate), samples = ns)
 end
