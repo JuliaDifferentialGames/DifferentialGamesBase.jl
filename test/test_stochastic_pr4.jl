@@ -126,3 +126,14 @@ end
         @test m.state_covariances[end] ≈ Σ rtol = 1e-6   # P = 0: physical covariance is open-loop
     end
 end
+
+@testset "Stochastic API docstrings" begin
+    names = [:JointLQStageCost, :JointLQGameProblem, :DiscreteGaussianNoise, :StochasticGameProblem,
+             :all_chance_constraints, :JointRiskBudget, :allocate_horizon_risk, :joint_risk_bound,
+             :check_risk_budget, :is_affine_constraint, :guarantee_class, :gaussian_violation_probability,
+             :ChanceCheck, :check_chance_constraints, :joint_violation_bound, :empirical_violation_rates,
+             :linear_observation, :observation_matrix, :is_affine_observation, :kalman_gain,
+             :kalman_joseph, :common_information_moments, :ChanceConstraint, :determinize]
+    missing_docs = [n for n in names if !Base.Docs.hasdoc(DifferentialGamesBase, n)]
+    @test isempty(missing_docs)
+end
