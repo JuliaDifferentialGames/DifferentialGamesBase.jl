@@ -24,7 +24,7 @@ const CANONICAL_CAPABILITIES = Set{Symbol}([
     :RobustMPC, :TubeBased, :ConvexGame, :VariationalNash, :GeneralizedNash,
     :LexicographicGame, :InverseLQGame, :InfiniteHorizon, :MultiAgent, :RecedingHorizon,
     # New for Phase 0 problem types (A(b)) and continuous-time games
-    :ContinuousTime, :Stochastic, :RobustDisturbance, :PartiallyObservable,
+    :ContinuousTime, :Stochastic, :RobustDisturbance, :PartiallyObservable, :ChanceConstrained,
 ])
 
 """

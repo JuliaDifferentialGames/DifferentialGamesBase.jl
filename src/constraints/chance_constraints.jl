@@ -459,7 +459,7 @@ Union bound `min(1, Σ Pr[violation])` on the probability of any violation along
 the trajectory, valid when each event probability is valid (not merely
 approximate — see `ChanceCheck.guarantee`).
 """
-joint_violation_bound(checks::AbstractVector{ChanceCheck}) = min(1.0, sum(c.violation_probability for c in checks))
+joint_violation_bound(checks::AbstractVector{ChanceCheck}) = min(1.0, sum(c.violation_probability for c in checks; init = 0.0))
 
 # ============================================================================
 # Empirical (simulation) validation
