@@ -285,7 +285,7 @@ is_unconstrained(g::GameProblem) =
 
 is_lq_game(g::GameProblem) =
     g.dynamics isa LinearDynamics &&
-    all(obj.stage_cost isa LQStageCost for obj in g.objectives)
+    all(obj.stage_cost isa Union{LQStageCost, JointLQStageCost} for obj in g.objectives)
 
 is_pd_gnep(g::GameProblem)             = g.dynamics isa SeparableDynamics
 has_shared_constraints(g::GameProblem) = !isempty(g.shared_constraints)

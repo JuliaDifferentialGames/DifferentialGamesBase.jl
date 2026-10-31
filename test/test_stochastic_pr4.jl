@@ -96,3 +96,33 @@
         @test all(isfinite, r1)
     end
 end
+
+@testset "Stochastic overhaul PR6: Kalman helpers" begin
+    @testset "Joseph form equals the standard update when K is optimal" begin
+        Σ⁻ = [0.5 0.1; 0.1 0.3]; H = [1.0 0.0]; V = reshape([0.2], 1, 1)
+        K = kalman_gain(Σ⁻, H, V)
+        std = Σ⁻ - K * H * Σ⁻
+        @test kalman_joseph(Σ⁻, K, H, V) ≈ std atol = 1e-14
+        # a suboptimal gain still gives a valid (PSD, symmetric) covariance via Joseph form
+        J = kalman_joseph(Σ⁻, 0.7 .* K, H, V)
+        @test issymmetric(J) && isposdef(J)
+    end
+    @testset "observation helpers" begin
+        obs = linear_observation([1.0 0.0; 0.0 2.0], Matrix(0.1I, 2, 2))
+        @test observation_matrix(obs, zeros(2), nothing, 1) ≈ [1.0 0.0; 0.0 2.0]
+        @test is_affine_observation(obs, 2)
+        sq = SharedObservation((x, v, p, t) -> x[1:1] .^ 2 .+ v, 1, reshape([0.1], 1, 1))
+        @test !is_affine_observation(sq, 2)
+    end
+    @testset "common-information moments: no information leaves open-loop covariance growth" begin
+        A = [[1.0 0.1; 0.0 1.0] for _ in 1:3]; B = [reshape([0.0, 0.1], 2, 1) for _ in 1:3]
+        P = [zeros(1, 2) for _ in 1:3]; W = [0.01 * Matrix(1.0I, 2, 2) for _ in 1:3]
+        H = [[1.0 0.0] for _ in 1:4]
+        m = common_information_moments(A, B, P, W, H, reshape([1e12], 1, 1), zeros(2, 2))
+        Σ = zeros(2, 2)
+        for k in 1:3
+            Σ = A[k] * Σ * A[k]' + W[k]
+        end
+        @test m.state_covariances[end] ≈ Σ rtol = 1e-6   # P = 0: physical covariance is open-loop
+    end
+end

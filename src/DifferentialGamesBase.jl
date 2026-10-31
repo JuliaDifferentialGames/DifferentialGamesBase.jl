@@ -73,6 +73,7 @@ include("objectives/standard_costs.jl")
 include("solutions/gnep_solutions.jl")
 include("uncertainty/gaussian_belief.jl")
 include("uncertainty/propagation.jl")
+include("uncertainty/kalman_filter.jl")
 include("constraints/chance_constraints.jl")
 include("problems/stochastic_game.jl")
 include("problems/robust_game.jl")
@@ -411,6 +412,8 @@ export
     ProcessNoiseModel,
     DiscreteGaussianNoise,
     all_chance_constraints,
+    linear_observation, observation_matrix, is_affine_observation,
+    kalman_gain, kalman_joseph, common_information_moments,
     JointRiskBudget, allocate_horizon_risk, joint_risk_bound, check_risk_budget,
     is_affine_constraint, guarantee_class, gaussian_violation_probability,
     ChanceCheck, check_chance_constraints, joint_violation_bound, empirical_violation_rates,
