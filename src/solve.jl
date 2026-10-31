@@ -8,6 +8,19 @@
 #   - GameSolution removed (replaced by GNEPSolution in gnep_solutions.jl)
 # ============================================================================
 
+"""
+    GameSolver
+
+Abstract supertype of all game solvers. A concrete solver `S <: GameSolver` holds only
+its options (constructor keyword arguments); `verbose` and `warmstart` are arguments of
+[`solve`](@ref), not of the solver. To add a solver, implement
+
+- `solver_capabilities(::Type{S})` returning symbols from `CANONICAL_CAPABILITIES`, and
+- `_solve(game, solver::S, warmstart::Union{Nothing,GNEPSolution,WarmstartData}, verbose::Bool)`.
+
+Annotate `warmstart` with exactly that `Union`; leaving it untyped makes the method
+ambiguous with the fallback `_solve` defined in this file.
+"""
 abstract type GameSolver end
 
 """
