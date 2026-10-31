@@ -96,33 +96,46 @@ implemented via the inverse error function (`Φ⁻¹(q) = sqrt(2) * erfinv(2q-1)
 """
 struct GaussianQuantileEvaluator <: AbstractChanceEvaluator end
 
+# Standard-normal quantile Φ⁻¹(q): Wichura's algorithm AS241 (PPND16), relative
+# error ≈ 1e-16 over (0, 1). Implemented locally to avoid a SpecialFunctions dependency.
 function _norm_quantile(q::Real)
-    # Φ⁻¹(q) = sqrt(2) * erfinv(2q - 1). Avoids a SpecialFunctions dependency
-    # via a rational (Acklam-free) approximation accurate to ~1e-9 for the
-    # q ∈ (0.5, 1) range relevant to one-sided chance constraints (ε < 0.5).
-    return sqrt(2) * _erfinv(2q - 1)
-end
-
-function _erfinv(x::Real)
-    # Winitzki (2008) rational approximation to erfinv, |err| < 1.3e-4 absolute;
-    # refined with two Newton steps against erf for double-precision accuracy.
-    a = 0.147
-    ln1mx2 = log(1 - x^2)
-    t1 = 2 / (π * a) + ln1mx2 / 2
-    y = sign(x) * sqrt(sqrt(t1^2 - ln1mx2 / a) - t1)
-    for _ in 1:2
-        y -= (erf_approx(y) - x) / (2 / sqrt(π) * exp(-y^2))
+    (0 < q < 1) || return q == 0 ? -Inf : q == 1 ? Inf : NaN
+    p = q - 0.5
+    if abs(p) <= 0.425
+        r = 0.180625 - p * p
+        return p * (((((((2509.0809287301226727 * r + 33430.575583588128105) * r +
+            67265.770927008700853) * r + 45921.953931549871457) * r +
+            13731.693765509461125) * r + 1971.5909503065514427) * r +
+            133.14166789178437745) * r + 3.387132872796366608) /
+            (((((((5226.495278852545925 * r + 28729.085735721942674) * r +
+            39307.89580009271061) * r + 21213.794301586595867) * r +
+            5394.1960214247511077) * r + 687.1870074920579083) * r +
+            42.313330701600911252) * r + 1.0)
     end
-    return y
-end
-
-function erf_approx(x::Real)
-    # Abramowitz & Stegun 7.1.26, |err| < 1.5e-7.
-    t = 1 / (1 + 0.3275911 * abs(x))
-    poly = t * (0.254829592 + t * (-0.284496736 + t * (1.421413741 +
-        t * (-1.453152027 + t * 1.061405429))))
-    s = 1 - poly * exp(-x^2)
-    return x >= 0 ? s : -s
+    r = p < 0 ? q : 1 - q
+    r = sqrt(-log(r))
+    if r <= 5.0
+        r -= 1.6
+        val = (((((((7.7454501427834140764e-4 * r + 0.0227238449892691845833) * r +
+            0.24178072517745061177) * r + 1.27045825245236838258) * r +
+            3.64784832476320460504) * r + 5.7694972214606914055) * r +
+            4.6303378461565452959) * r + 1.42343711074968357734) /
+            (((((((1.05075007164441684324e-9 * r + 5.475938084995344946e-4) * r +
+            0.0151986665636164571966) * r + 0.14810397642748007459) * r +
+            0.68976733498510000455) * r + 1.6763848301838038494) * r +
+            2.05319162663775882187) * r + 1.0)
+    else
+        r -= 5.0
+        val = (((((((2.01033439929228813265e-7 * r + 2.71155556874348757815e-5) * r +
+            0.0012426609473880784386) * r + 0.026532189526576123093) * r +
+            0.29656057182850489123) * r + 1.7848265399172913358) * r +
+            5.4637849111641143699) * r + 6.6579046435011037772) /
+            (((((((2.04426310338993978564e-15 * r + 1.4215117583164458887e-7) * r +
+            1.8463183175100546818e-5) * r + 7.868691311456132591e-4) * r +
+            0.0148753612908506148525) * r + 0.13692988092273580531) * r +
+            0.59983220655588793769) * r + 1.0)
+    end
+    return p < 0 ? -val : val
 end
 
 """

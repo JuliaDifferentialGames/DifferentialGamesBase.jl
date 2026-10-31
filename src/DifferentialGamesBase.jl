@@ -60,6 +60,7 @@ include("dynamics/dynamics.jl")
 include("time_horizon.jl")
 include("problems/player_spec.jl")
 include("problems/GNEP.jl")
+include("problems/joint_lq.jl")
 include("problems/player_based_game.jl")
 include("abstract/strategy.jl")
 include("dynamics/discretization.jl")
@@ -408,6 +409,9 @@ export
 export
     StochasticGameProblem,
     ProcessNoiseModel,
+    DiscreteGaussianNoise,
+    JointLQStageCost,
+    JointLQGameProblem,
     RobustGameProblem,
     DisturbanceSet,
     POGameProblem,

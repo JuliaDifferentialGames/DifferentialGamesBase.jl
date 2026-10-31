@@ -14,6 +14,12 @@
 # constraints/chance_constraints.jl, uncertainty/propagation.jl.
 # ============================================================================
 
+# ½tr(QΣ) correction that turns a cost evaluated at the mean into the expected
+# cost of a quadratic cost under x ~ N(μ, Σ). Zero for non-quadratic costs.
+_expected_cost_trace_term(cost::LQStageCost, Σ, t) = 0.5 * tr(get_Q(cost, t) * Σ)
+_expected_cost_trace_term(cost::LQTerminalCost, Σ, _) = 0.5 * tr(cost.Qf * Σ)
+_expected_cost_trace_term(cost, Σ, t) = zero(eltype(Σ))
+
 _unflatten_belief(z::AbstractVector, n::Int) = (z[1:n], reshape(z[n+1:n+n^2], n, n))
 _flatten_belief(μ::AbstractVector, Σ::AbstractMatrix) = vcat(μ, vec(Matrix(Σ)))
 
@@ -60,16 +66,28 @@ function determinize(
     m = total_control_dim(nominal.dynamics)
     aug_dynamics = CoupledNonlinearDynamics(aug_func, aug_dim, m)
 
-    # Augmented initial state: nominal x0 as the mean, zero initial covariance
-    # (deterministic initial condition) unless sg carries an explicit belief.
-    z0 = _flatten_belief(nominal.initial_state, zeros(T, n, n))
+    # Augmented initial state: nominal x0 as the mean and sg's initial covariance.
+    sg.process_covariances === nothing ||
+        error("determinize does not support time-varying process covariances yet")
+    z0 = _flatten_belief(nominal.initial_state, sg.initial_covariance)
 
-    # Wrap each player's objective so it only sees the μ slice of z.
+    # Wrap each player's objective so it sees the μ slice of z. For quadratic
+    # costs the expected cost is exact: E[½xᵀQx] = ½μᵀQμ + ½tr(QΣ), so the
+    # covariance term is added back. Other cost types are evaluated at the mean
+    # only (a first-order approximation).
     aug_objectives = map(nominal.objectives) do obj
         stage = NonlinearStageCost(
-            (z, u, p, t) -> evaluate_stage_cost(obj.stage_cost, belief_fn(z)[1], u, p, t))
+            (z, u, p, t) -> begin
+                μ, Σ = belief_fn(z)
+                evaluate_stage_cost(obj.stage_cost, μ, u, p, t) +
+                    _expected_cost_trace_term(obj.stage_cost, Σ, t)
+            end)
         terminal = NonlinearTerminalCost(
-            (z, p) -> evaluate_terminal_cost(obj.terminal_cost, belief_fn(z)[1], p))
+            (z, p) -> begin
+                μ, Σ = belief_fn(z)
+                evaluate_terminal_cost(obj.terminal_cost, μ, p) +
+                    _expected_cost_trace_term(obj.terminal_cost, Σ, nothing)
+            end)
         PlayerObjective(obj.player_id, stage, terminal, obj.scaling)
     end
 

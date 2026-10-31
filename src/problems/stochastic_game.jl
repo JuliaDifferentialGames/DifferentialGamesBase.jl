@@ -40,19 +40,33 @@ struct ProcessNoiseModel{T}
     Σ::Union{Matrix{T}, Vector{Matrix{T}}}
 
     function ProcessNoiseModel{T}(Σ::Matrix{T}) where {T}
-        @assert issymmetric(Σ) "Process noise covariance must be symmetric"
-        @assert isposdef(Σ) "Process noise covariance must be positive definite"
+        _check_psd_covariance(Σ, "Process noise covariance")
         new{T}(Σ)
     end
 
     function ProcessNoiseModel{T}(Σ::Vector{Matrix{T}}) where {T}
         @assert !isempty(Σ) "Process noise covariance sequence must be non-empty"
         for Σk in Σ
-            @assert issymmetric(Σk) "Each process noise covariance must be symmetric"
-            @assert isposdef(Σk) "Each process noise covariance must be positive definite"
+            _check_psd_covariance(Σk, "Each process noise covariance")
         end
         new{T}(Σ)
     end
+end
+
+# Covariances may be singular (zero or rank-deficient disturbances are legitimate),
+# so only symmetry and positive *semi*definiteness are required.
+function _check_psd_covariance(Σ::AbstractMatrix{T}, what::AbstractString) where {T}
+    @assert issymmetric(Σ) "$what must be symmetric"
+    ev = eigvals(Symmetric(Σ))
+    tol = sqrt(eps(T)) * max(one(T), maximum(abs, ev))
+    @assert all(>=(-tol), ev) "$what must be positive semidefinite"
+    return nothing
+end
+
+# Factor Σ = G Gᵀ for possibly singular PSD Σ (Cholesky fails on rank-deficient input).
+function _psd_factor(Σ::AbstractMatrix{T}) where {T}
+    F = eigen(Symmetric(Σ))
+    return Matrix(F.vectors * Diagonal(sqrt.(max.(F.values, zero(T)))))
 end
 
 ProcessNoiseModel(Σ::Matrix{T}) where {T} = ProcessNoiseModel{T}(Σ)
@@ -70,7 +84,7 @@ Build the additive-noise `ItoSDEDynamics` equivalent to a (legacy)
 function _ito_sde_from_process_noise(drift::DynamicsSpec{T}, pnm::ProcessNoiseModel{T}) where {T}
     is_ltv(pnm) && error("LTV ProcessNoiseModel is not yet supported by the ItoSDEDynamics conversion — see docs/src/api/stochastic.md Phase roadmap.")
     Σ = pnm.Σ
-    G = Matrix(cholesky(Symmetric(Σ)).L)
+    G = _psd_factor(Σ)
     ItoSDEDynamics(drift, constant_diffusion(G), size(G, 2))
 end
 
@@ -90,32 +104,69 @@ drift of an `ItoSDEDynamics` (or, for the Phase 1 POMDPs.jl adapter, is a
 struct StochasticGameProblem{T} <: AbstractStochasticGame{T}
     nominal_game::AbstractDeterministicGame{T}
     stochastic_dynamics::AbstractStochasticDynamics{T}
+    initial_covariance::Matrix{T}
+    process_covariances::Union{Nothing, Vector{Matrix{T}}}
 
     function StochasticGameProblem{T}(
         nominal_game::AbstractDeterministicGame{T},
-        stochastic_dynamics::AbstractStochasticDynamics{T}
+        stochastic_dynamics::AbstractStochasticDynamics{T},
+        initial_covariance::Matrix{T},
+        process_covariances::Union{Nothing, Vector{Matrix{T}}} = nothing
     ) where {T}
-        @assert total_state_dim(stochastic_dynamics) == total_state_dim(nominal_game.dynamics) "stochastic_dynamics state dim must match nominal_game"
-        new{T}(nominal_game, stochastic_dynamics)
+        n = total_state_dim(nominal_game.dynamics)
+        @assert total_state_dim(stochastic_dynamics) == n "stochastic_dynamics state dim must match nominal_game"
+        @assert size(initial_covariance) == (n, n) "initial_covariance must be n×n"
+        _check_psd_covariance(initial_covariance, "Initial covariance")
+        if process_covariances !== nothing
+            @assert all(W -> size(W) == (n, n), process_covariances) "each process covariance must be n×n"
+        end
+        new{T}(nominal_game, stochastic_dynamics, initial_covariance, process_covariances)
     end
+end
+
+function StochasticGameProblem{T}(g::AbstractDeterministicGame{T}, sd::AbstractStochasticDynamics{T}) where {T}
+    n = total_state_dim(g.dynamics)
+    StochasticGameProblem{T}(g, sd, zeros(T, n, n), nothing)
 end
 
 StochasticGameProblem(
     nominal_game::AbstractDeterministicGame{T},
-    stochastic_dynamics::AbstractStochasticDynamics{T}
-) where {T} = StochasticGameProblem{T}(nominal_game, stochastic_dynamics)
+    stochastic_dynamics::AbstractStochasticDynamics{T};
+    initial_covariance::Union{Nothing, AbstractMatrix} = nothing
+) where {T} = StochasticGameProblem{T}(nominal_game, stochastic_dynamics,
+    initial_covariance === nothing ?
+        zeros(T, total_state_dim(nominal_game.dynamics), total_state_dim(nominal_game.dynamics)) :
+        Matrix{T}(initial_covariance), nothing)
 
 """
-    StochasticGameProblem(nominal_game, pnm::ProcessNoiseModel) -> StochasticGameProblem
+    StochasticGameProblem(nominal_game, pnm::ProcessNoiseModel; initial_covariance=nothing)
 
-Backward-compatible constructor matching the old call pattern. Converts
-`pnm` into the `ItoSDEDynamics` that reproduces its additive-noise semantics,
-using `nominal_game.dynamics` (must be `LinearDynamics`) as the drift.
+Backward-compatible constructor. Converts `pnm` into the `ItoSDEDynamics`
+reproducing its additive-noise semantics, using `nominal_game.dynamics` (must be
+`LinearDynamics`) as the drift. A per-step (LTV) `pnm` is stored in
+`process_covariances` (step `k` uses `process_covariances[k]`); the SDE then
+carries `pnm.Σ[1]` only as a placeholder. `initial_covariance` is the
+covariance of the uncertain initial state `x₀ ~ N(x0, Σ₀)` (default zero).
 """
-function StochasticGameProblem(nominal_game::AbstractDeterministicGame{T}, pnm::ProcessNoiseModel{T}) where {T}
+function StochasticGameProblem(nominal_game::AbstractDeterministicGame{T}, pnm::ProcessNoiseModel{T};
+        initial_covariance::Union{Nothing, AbstractMatrix} = nothing) where {T}
+    n = total_state_dim(nominal_game.dynamics)
+    Σ0 = initial_covariance === nothing ? zeros(T, n, n) : Matrix{T}(initial_covariance)
+    if is_ltv(pnm)
+        sde = _ito_sde_from_process_noise(nominal_game.dynamics, ProcessNoiseModel(pnm.Σ[1]))
+        return StochasticGameProblem{T}(nominal_game, sde, Σ0, Vector{Matrix{T}}(pnm.Σ))
+    end
     sde = _ito_sde_from_process_noise(nominal_game.dynamics, pnm)
-    StochasticGameProblem{T}(nominal_game, sde)
+    StochasticGameProblem{T}(nominal_game, sde, Σ0, nothing)
 end
+
+"""
+    DiscreteGaussianNoise(W)
+
+Discrete-time additive Gaussian process noise `w_k ~ N(0, W_k)`; `W` is one PSD
+matrix (LTI) or a vector of them (one per step). Alias of [`ProcessNoiseModel`](@ref).
+"""
+const DiscreteGaussianNoise = ProcessNoiseModel
 
 n_players(g::StochasticGameProblem) = n_players(g.nominal_game)
 time_horizon(g::StochasticGameProblem) = time_horizon(g.nominal_game)
@@ -127,7 +178,13 @@ Noise covariance `GGᵀ` for the wrapped `ItoSDEDynamics`'s diffusion, read
 off `.diffusion` rather than a bare `ProcessNoiseModel`. Consumed by
 SFNELQ (`DifferentialGamesBaseSolvers.jl`).
 """
+function get_W(g::StochasticGameProblem, k::Int)
+    g.process_covariances === nothing || return g.process_covariances[k]
+    return get_W(g)
+end
+
 function get_W(g::StochasticGameProblem)
+    g.process_covariances === nothing || error("get_W(g) is ambiguous for time-varying noise; use get_W(g, k)")
     sde = g.stochastic_dynamics
     @assert sde isa ItoSDEDynamics "get_W requires ItoSDEDynamics stochastic dynamics"
     G = diffusion_matrix(sde, g.nominal_game.initial_state,

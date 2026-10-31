@@ -134,7 +134,8 @@ function _build_stochastic_discrete_approximation(
     mean = (x, u, p, t) -> da_step(da, x, u, p, t)
     jac  = (x, u, p, t) -> jacobian(da, x, u, p, t)
     cov  = (x, u, p, t) -> Q
-    samp = (rng, x, u, p, t) -> mean(x, u, p, t) .+ cholesky(Symmetric(Q)).L * randn(rng, T, size(Q, 1))
+    # Sample through G directly: Q = GGᵀ may be singular, where Cholesky(Q) fails.
+    samp = (rng, x, u, p, t) -> mean(x, u, p, t) .+ G * randn(rng, T, size(G, 2))
 
     n = da.state_dim
     m = da.control_dim

@@ -11,6 +11,7 @@ using DifferentialGamesBase
     include("test_phase4.jl")
     include("test_phase5.jl")
     include("test_phase6_stochastic.jl")
+    include("test_stochastic_pr1.jl")
     include("game_building_tests.jl")
     include("inverse_game_building_tests.jl")
     include("ltv_tests.jl")
